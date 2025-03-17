@@ -194,8 +194,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 <div align="center">
   <p>Built with ❤️ for the RAG community</p>
   <p>
-    <a href="https://github.com/yourusername/betterrag/issues">Report Bug</a>
+    <a href="https://github.com/Kaos599/betterrag/issues">Report Bug</a>
     ·
-    <a href="https://github.com/yourusername/betterrag/issues">Request Feature</a>
+    <a href="https://github.com/Kaos599/betterrag/issues">Request Feature</a>
   </p>
 </div>
