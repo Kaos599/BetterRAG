@@ -87,9 +87,14 @@ class AzureOpenAIConnector:
             # Handle large batches by processing in chunks
             max_batch_size = 100
             embeddings = []
+            total_texts = len(texts)
             
-            for i in range(0, len(texts), max_batch_size):
+            for i in range(0, total_texts, max_batch_size):
                 batch = texts[i:i + max_batch_size]
+                batch_end = min(i + max_batch_size, total_texts)
+                
+                if total_texts > max_batch_size:
+                    print(f"Embedding batch {i//max_batch_size + 1}: processing texts {i+1}-{batch_end} of {total_texts}")
                 
                 response = self.client.embeddings.create(
                     input=batch,
@@ -100,7 +105,7 @@ class AzureOpenAIConnector:
                 embeddings.extend(batch_embeddings)
                 
                 # Rate limit handling - sleep if needed
-                if i + max_batch_size < len(texts):
+                if i + max_batch_size < total_texts:
                     time.sleep(0.5)
             
             return embeddings
@@ -145,12 +150,11 @@ class AzureOpenAIConnector:
                 "content": prompt
             })
             
-            # Generate response
+            # Generate response - remove temperature parameter
             response = self.client.chat.completions.create(
                 model=self.deployment_name,
                 messages=messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens
+                max_completion_tokens=self.max_tokens
             )
             
             # Extract and return the generated text

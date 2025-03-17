@@ -84,9 +84,19 @@ class MongoDBConnector:
         """
         if not self.connected:
             if not self.connect():
+                print("Failed to connect to MongoDB database")
                 return None
         
         try:
+            # Validate inputs
+            if text is None or embedding is None:
+                print("Error: Cannot insert chunk with None text or embedding")
+                return None
+                
+            if not isinstance(text, str):
+                print(f"Error: text must be a string, got {type(text)}")
+                return None
+                
             # Create document with metadata and embedding
             document = {
                 "text": text,
@@ -106,6 +116,8 @@ class MongoDBConnector:
         
         except Exception as e:
             print(f"Error inserting chunk into MongoDB: {e}")
+            print(f"Chunk details: length={len(text) if text else 'None'}, "
+                  f"embedding_size={len(embedding) if embedding and hasattr(embedding, '__len__') else 'None'}")
             return None
     
     def find_similar_chunks(self, 
@@ -191,6 +203,15 @@ class MongoDBConnector:
         except Exception as e:
             print(f"Error clearing collection in MongoDB: {e}")
             return False
+    
+    def reset_database(self) -> bool:
+        """
+        Reset the database by clearing all collections.
+        
+        Returns:
+            bool: True if operation successful, False otherwise
+        """
+        return self.clear_collection()
     
     def get_chunk_count(self, strategy: str = None) -> int:
         """

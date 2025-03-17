@@ -117,11 +117,29 @@ class VisualizationDashboard:
         # 5. Generate combined metrics chart
         self._generate_plotly_combined_metrics()
     
-    def run_dashboard(self):
+    def run_dashboard(self, evaluation_results=None, aggregated_metrics=None, best_strategy=None):
         """
         Run an interactive Dash dashboard with the evaluation results.
+        
+        Args:
+            evaluation_results: Optional evaluation results to display
+            aggregated_metrics: Optional aggregated metrics to display
+            best_strategy: Optional name of the best strategy
         """
-        if not self.results or not self.aggregated:
+        # Use provided results or fall back to stored results
+        results = evaluation_results if evaluation_results is not None else self.results
+        aggregated = aggregated_metrics if aggregated_metrics is not None else self.aggregated
+        best = best_strategy if best_strategy is not None else self.best_strategy
+        
+        # Update stored results if provided
+        if evaluation_results is not None:
+            self.results = evaluation_results
+        if aggregated_metrics is not None:
+            self.aggregated = aggregated_metrics
+        if best_strategy is not None:
+            self.best_strategy = best_strategy
+        
+        if not results or not aggregated:
             print("No results to display in dashboard.")
             return
         
@@ -129,13 +147,14 @@ class VisualizationDashboard:
         app = Dash(__name__)
         
         # Convert aggregated metrics to DataFrame for easier handling
-        strategies = list(self.aggregated.keys())
-        metrics_df = pd.DataFrame(self.aggregated).T.reset_index()
+        strategies = list(aggregated.keys())
+        metrics_df = pd.DataFrame(aggregated).T.reset_index()
         metrics_df = metrics_df.rename(columns={"index": "strategy"})
         
         # Create dropdown options for queries
-        queries = list(self.results.keys())
-        query_options = [{"label": q[:50] + "..." if len(q) > 50 else q, "value": q} for q in queries]
+        queries = list(results.keys())
+        query_options = [{"label": results[q]["query_text"][:50] + "..." if len(results[q]["query_text"]) > 50 else results[q]["query_text"], 
+                         "value": q} for q in queries]
         
         # Layout
         app.layout = html.Div([
@@ -144,8 +163,8 @@ class VisualizationDashboard:
             html.Div([
                 html.H2("Best Strategy"),
                 html.Div([
-                    html.H3(self.best_strategy),
-                    html.P(f"Based on the evaluation, the '{self.best_strategy}' strategy performed best overall.")
+                    html.H3(best),
+                    html.P(f"Based on the evaluation, the '{best}' strategy performed best overall.")
                 ], style={"border": "2px solid green", "padding": "10px", "border-radius": "5px"})
             ]),
             
@@ -160,16 +179,16 @@ class VisualizationDashboard:
                         id="metrics-table",
                         columns=[
                             {"name": "Strategy", "id": "strategy"},
-                            {"name": "Context Precision", "id": "avg_context_precision"},
-                            {"name": "Token Efficiency", "id": "avg_token_efficiency"},
-                            {"name": "Avg Similarity", "id": "avg_chunk_similarities"},
-                            {"name": "Total Time (s)", "id": "avg_total_time"},
-                            {"name": "Context Tokens", "id": "avg_context_tokens"},
+                            {"name": "Context Precision", "id": "context_precision"},
+                            {"name": "Token Efficiency", "id": "token_efficiency"},
+                            {"name": "Answer Relevance", "id": "answer_relevance"},
+                            {"name": "Latency (s)", "id": "latency"},
+                            {"name": "Combined Score", "id": "combined_score"},
                         ],
                         data=metrics_df.to_dict("records"),
                         style_data_conditional=[
                             {
-                                "if": {"row_index": metrics_df[metrics_df["strategy"] == self.best_strategy].index[0]},
+                                "if": {"row_index": metrics_df[metrics_df["strategy"] == best].index[0]},
                                 "backgroundColor": "rgba(0, 255, 0, 0.2)",
                                 "fontWeight": "bold"
                             }
@@ -240,22 +259,23 @@ class VisualizationDashboard:
             [Input("query-dropdown", "value")]
         )
         def update_query_results(query):
-            if not query or query not in self.results:
+            if not query or query not in results:
                 return {}, [], []
             
             # Generate chart for this query's metrics
-            query_results = self.results[query]
+            query_results = results[query]
             
             # Prepare data for the chart
             data = []
-            for strategy, metrics in query_results.items():
+            for strategy, metrics in query_results["results"].items():
                 if "error" not in metrics:
                     data.append({
                         "strategy": strategy,
-                        "retrieval_time": metrics.get("retrieval_time", 0),
+                        "retrieval_time": metrics.get("latency", 0),
                         "context_precision": metrics.get("context_precision", 0),
                         "token_efficiency": metrics.get("token_efficiency", 0),
-                        "chunk_similarities_avg": np.mean(metrics.get("chunk_similarities", [0])),
+                        "answer_relevance": metrics.get("answer_relevance", 0),
+                        "combined_score": metrics.get("combined_score", 0),
                         "context_tokens": metrics.get("context_tokens", 0)
                     })
             
@@ -285,39 +305,39 @@ class VisualizationDashboard:
             
             fig.update_layout(
                 height=600,
-                title_text=f"Performance Metrics for Query: {query[:50]}...",
+                title_text=f"Performance Metrics for Query: {query_results['query_text'][:50]}...",
                 showlegend=False
             )
             
             # Generate chunks display
             chunks_display = []
-            for strategy, metrics in query_results.items():
-                if "error" not in metrics and "chunks" in metrics:
-                    chunks = metrics["chunks"]
+            for strategy, metrics in query_results["results"].items():
+                if "error" not in metrics and "answer" in metrics:
+                    chunks = metrics.get("chunks", [])
                     
                     chunks_display.append(html.Div([
                         html.H4(f"Strategy: {strategy}"),
                         html.Table([
                             html.Thead(
                                 html.Tr([
-                                    html.Th("Chunk"),
+                                    html.Th("Chunk #"),
                                     html.Th("Similarity"),
                                     html.Th("Text Preview")
                                 ])
                             ),
                             html.Tbody([
                                 html.Tr([
-                                    html.Td(chunk.get("chunk_id", "")),
-                                    html.Td(f"{chunk.get('similarity', 0):.4f}"),
-                                    html.Td(chunk.get("text", ""))
-                                ]) for chunk in chunks
+                                    html.Td(i+1),
+                                    html.Td(f"{chunk.get('similarity', 0):.4f}" if isinstance(chunk, dict) else "N/A"),
+                                    html.Td(chunk.get("text", "") if isinstance(chunk, dict) else str(chunk)[:100])
+                                ]) for i, chunk in enumerate(chunks)
                             ])
                         ], style={"width": "100%", "border": "1px solid #ddd", "borderCollapse": "collapse"})
                     ], style={"marginBottom": "20px"}))
             
             # Generate answers display
             answers_display = []
-            for strategy, metrics in query_results.items():
+            for strategy, metrics in query_results["results"].items():
                 if "error" not in metrics and "answer" in metrics:
                     answer = metrics["answer"]
                     

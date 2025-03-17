@@ -20,6 +20,13 @@ from app.visualization import get_dashboard
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Reduce verbosity of httpx logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+# Also suppress urllib3 logs which might be used by some libraries
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+# Suppress OpenAI library logs
+logging.getLogger("openai").setLevel(logging.WARNING)
+
 def parse_arguments() -> argparse.Namespace:
     """
     Parse command-line arguments.
@@ -76,14 +83,22 @@ def process_documents(config: Dict[str, Any], model_connector: Any, db_connector
             chunks = chunker.chunk_text(content)
             
             # Generate embeddings and store in database
+            print(f"Generating embeddings for {len(chunks)} chunks using {strategy_name} strategy...")
+            chunk_count = 0
+            total_chunks = len(chunks)
+            
             for chunk in chunks:
+                chunk_count += 1
+                if chunk_count % 5 == 0 or chunk_count == total_chunks:
+                    print(f"Progress: {chunk_count}/{total_chunks} chunks processed ({(chunk_count/total_chunks)*100:.1f}%)")
+                
                 embedding = model_connector.get_embedding(chunk)
                 chunk_id = db_connector.insert_chunk(
                     chunk, embedding, doc_id, strategy_name
                 )
                 chunk_ids.append(chunk_id)
             
-            logger.info(f"Processed {len(chunks)} chunks for document {doc_id}")
+            print(f"Completed processing {total_chunks} chunks for document {doc_id}")
         
         chunk_ids_by_strategy[strategy_name] = chunk_ids
     
@@ -145,12 +160,17 @@ def run_visualization(config: Dict[str, Any], evaluation_results: Dict,
     # Save results
     dashboard.save_results(evaluation_results, aggregated_metrics, best_strategy)
     
-    # Generate charts
-    dashboard.generate_charts(evaluation_results, aggregated_metrics, best_strategy)
+    # Skip chart generation for now to avoid visualization errors
+    # dashboard.generate_matplotlib_charts()
+    # dashboard.generate_plotly_charts()
     
     # Run dashboard
     logger.info(f"Starting dashboard on port {config['visualization']['dashboard']['port']}...")
-    dashboard.run_dashboard(evaluation_results, aggregated_metrics, best_strategy)
+    try:
+        dashboard.run_dashboard(evaluation_results, aggregated_metrics, best_strategy)
+    except Exception as e:
+        logger.error(f"Error running dashboard: {e}")
+        logger.info("Skipping dashboard visualization. Results are saved to the output directory.")
 
 def main():
     """Main entry point for the application."""

@@ -66,11 +66,12 @@ class ChunkingEvaluator:
         
         if not similar_chunks:
             return {
-                "strategy": strategy,
-                "query": query,
-                "retrieved_chunks": 0,
-                "retrieval_time": retrieval_time,
-                "error": "No chunks retrieved"
+                "error": "No chunks retrieved",
+                "latency": retrieval_time,
+                "context_precision": 0,
+                "token_efficiency": 0,
+                "answer_relevance": 0,
+                "combined_score": 0
             }
         
         # Prepare context from retrieved chunks
@@ -82,37 +83,31 @@ class ChunkingEvaluator:
         answer = self.model.generate_text(query, context)
         generation_time = time.time() - generation_start
         
+        total_time = retrieval_time + generation_time
+        
         # Calculate metrics
-        result = {
-            "strategy": strategy,
-            "query": query,
-            "retrieved_chunks": len(similar_chunks),
-            "retrieval_time": retrieval_time,
-            "generation_time": generation_time,
-            "total_time": retrieval_time + generation_time,
-            "context_tokens": context_tokens,
-            "context_precision": self._calculate_context_precision(similar_chunks, query),
-            "token_efficiency": self._calculate_token_efficiency(similar_chunks, query),
-            "chunk_similarities": [chunk.get("similarity", 0) for chunk in similar_chunks],
-            "answer": answer,
-        }
+        context_precision = self._calculate_context_precision(similar_chunks, query)
+        token_efficiency = self._calculate_token_efficiency(similar_chunks, query)
         
-        # Add chunk details for analysis
-        result["chunks"] = [
-            {
-                "chunk_id": chunk.get("chunk_id", ""),
-                "text": chunk.get("text", "")[:100] + "...",  # Truncate for readability
-                "similarity": chunk.get("similarity", 0),
-                "chunk_index": chunk.get("chunk_index", 0),
-                "strategy": chunk.get("strategy", "")
-            }
-            for chunk in similar_chunks
-        ]
-        
-        # Calculate additional metrics if ground truth is available
+        # Calculate answer relevance if ground truth is available
+        answer_relevance = 0
         if self.ground_truth and query in self.ground_truth:
             ground_truth_answer = self.ground_truth[query]
-            result["answer_relevance"] = self._calculate_answer_relevance(answer, ground_truth_answer)
+            answer_relevance = self._calculate_answer_relevance(answer, ground_truth_answer)
+        
+        # Calculate combined score
+        combined_score = (0.4 * context_precision) + (0.3 * token_efficiency) + (0.3 * answer_relevance)
+        
+        result = {
+            "context_precision": context_precision,
+            "token_efficiency": token_efficiency,
+            "answer_relevance": answer_relevance,
+            "latency": total_time,
+            "combined_score": combined_score,
+            "answer": answer,
+            "chunks_retrieved": len(similar_chunks),
+            "context_tokens": context_tokens
+        }
         
         return result
     
@@ -136,17 +131,50 @@ class ChunkingEvaluator:
         
         return results
     
-    def evaluate_all_queries(self, queries: List[str], strategies: List[str] = None) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def evaluate_strategies(self) -> tuple:
+        """
+        Evaluate all chunking strategies using test queries from configuration.
+        
+        Returns:
+            Tuple containing:
+            - Evaluation results dictionary
+            - Aggregated metrics dictionary
+            - Name of the best performing strategy
+        """
+        # Load test queries from the test queries file
+        import json
+        import os
+        
+        test_queries_file = self.config['general']['test_queries_file']
+        if not os.path.exists(test_queries_file):
+            raise FileNotFoundError(f"Test queries file not found: {test_queries_file}")
+        
+        with open(test_queries_file, 'r') as f:
+            queries = json.load(f)
+        
+        # Evaluate all queries against all strategies
+        strategies = self.db.get_all_strategies()
+        evaluation_results = self.evaluate_all_queries(queries, strategies)
+        
+        # Calculate aggregate metrics
+        aggregated_metrics = self.calculate_aggregate_metrics(evaluation_results)
+        
+        # Determine the best strategy
+        best_strategy = self.get_best_strategy(aggregated_metrics)
+        
+        return evaluation_results, aggregated_metrics, best_strategy
+    
+    def evaluate_all_queries(self, queries: List[Dict[str, Any]], strategies: List[str] = None) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
         Evaluate all queries against all specified strategies.
         
         Args:
-            queries: List of queries to evaluate
+            queries: List of query dictionaries to evaluate
             strategies: Optional list of strategies to evaluate against
                         (if None, uses all available strategies)
             
         Returns:
-            Dict mapping queries to strategies to evaluation results
+            Dict mapping query IDs to strategies to evaluation results
         """
         results = {}
         
@@ -154,14 +182,22 @@ class ChunkingEvaluator:
         if not strategies:
             strategies = self.db.get_all_strategies()
         
-        for query in queries:
-            results[query] = {}
+        for i, query_dict in enumerate(queries):
+            query_id = f"query_{i}"  # Create a unique ID for each query
+            query_text = query_dict["query"]
+            
+            results[query_id] = {
+                "query_text": query_text,
+                "expected_keywords": query_dict.get("expected_keywords", []),
+                "results": {}
+            }
+            
             for strategy in strategies:
-                results[query][strategy] = self.evaluate_query(query, strategy)
+                results[query_id]["results"][strategy] = self.evaluate_query(query_text, strategy)
         
         return results
     
-    def calculate_aggregate_metrics(self, evaluation_results: Dict[str, Dict[str, Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
+    def calculate_aggregate_metrics(self, evaluation_results: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         """
         Calculate aggregate metrics across all queries for each strategy.
         
@@ -169,65 +205,41 @@ class ChunkingEvaluator:
             evaluation_results: Results from evaluate_all_queries
             
         Returns:
-            Dict mapping strategy names to aggregated metrics
+            Dict mapping strategies to aggregated metrics
         """
         aggregated = {}
         
-        # Get all strategies
+        # Get all strategies from the results
         strategies = set()
-        for query_results in evaluation_results.values():
-            strategies.update(query_results.keys())
+        for query_id, query_data in evaluation_results.items():
+            for strategy in query_data["results"].keys():
+                strategies.add(strategy)
         
         # Initialize aggregated metrics for each strategy
         for strategy in strategies:
             aggregated[strategy] = {
-                "strategy": strategy,
-                "queries_evaluated": 0,
-                "avg_retrieval_time": 0,
-                "avg_generation_time": 0,
-                "avg_total_time": 0,
-                "avg_context_tokens": 0,
-                "avg_context_precision": 0,
-                "avg_token_efficiency": 0,
-                "avg_chunk_similarities": 0,
-                "avg_answer_relevance": 0,
-                "has_answer_relevance": False
+                "context_precision": [],
+                "token_efficiency": [],
+                "answer_relevance": [],
+                "latency": [],
+                "combined_score": []
             }
         
-        # Aggregate metrics
-        for query, query_results in evaluation_results.items():
-            for strategy, result in query_results.items():
-                if "error" in result:
-                    continue
-                
-                agg = aggregated[strategy]
-                agg["queries_evaluated"] += 1
-                agg["avg_retrieval_time"] += result["retrieval_time"]
-                agg["avg_generation_time"] += result["generation_time"]
-                agg["avg_total_time"] += result["total_time"]
-                agg["avg_context_tokens"] += result["context_tokens"]
-                agg["avg_context_precision"] += result["context_precision"]
-                agg["avg_token_efficiency"] += result["token_efficiency"]
-                agg["avg_chunk_similarities"] += np.mean(result["chunk_similarities"]) if result["chunk_similarities"] else 0
-                
-                if "answer_relevance" in result:
-                    agg["avg_answer_relevance"] += result["answer_relevance"]
-                    agg["has_answer_relevance"] = True
+        # Collect metrics for each strategy across all queries
+        for query_id, query_data in evaluation_results.items():
+            for strategy, metrics in query_data["results"].items():
+                for metric_name in ["context_precision", "token_efficiency", "answer_relevance", "latency", "combined_score"]:
+                    if metric_name in metrics:
+                        aggregated[strategy][metric_name].append(metrics[metric_name])
         
         # Calculate averages
-        for strategy, agg in aggregated.items():
-            queries_count = agg["queries_evaluated"]
-            if queries_count > 0:
-                agg["avg_retrieval_time"] /= queries_count
-                agg["avg_generation_time"] /= queries_count
-                agg["avg_total_time"] /= queries_count
-                agg["avg_context_tokens"] /= queries_count
-                agg["avg_context_precision"] /= queries_count
-                agg["avg_token_efficiency"] /= queries_count
-                agg["avg_chunk_similarities"] /= queries_count
-                
-                if agg["has_answer_relevance"]:
-                    agg["avg_answer_relevance"] /= queries_count
+        for strategy in strategies:
+            for metric_name in ["context_precision", "token_efficiency", "answer_relevance", "latency", "combined_score"]:
+                values = aggregated[strategy][metric_name]
+                if values:
+                    aggregated[strategy][metric_name] = sum(values) / len(values)
+                else:
+                    aggregated[strategy][metric_name] = 0.0
         
         return aggregated
     
@@ -239,17 +251,18 @@ class ChunkingEvaluator:
             aggregated_metrics: Aggregated metrics from calculate_aggregate_metrics
             
         Returns:
-            Name of the best strategy
+            Name of the best performing strategy
         """
         if not aggregated_metrics:
             return None
         
-        # Define weights for different metrics (customize as needed)
+        # Define weights for different metrics
         weights = {
-            "avg_context_precision": 0.4,
-            "avg_token_efficiency": 0.3,
-            "avg_chunk_similarities": 0.2,
-            "avg_total_time": -0.1  # Negative weight because lower is better
+            "context_precision": 0.4,
+            "token_efficiency": 0.3,
+            "answer_relevance": 0.3,
+            # Latency is considered but with lower weight
+            "latency": -0.1  # Negative because lower latency is better
         }
         
         # Calculate weighted scores
@@ -258,21 +271,20 @@ class ChunkingEvaluator:
             score = 0
             for metric, weight in weights.items():
                 if metric in metrics:
-                    # Normalize time metric (lower is better)
-                    if metric == "avg_total_time":
-                        max_time = max(m.get("avg_total_time", 0) for m in aggregated_metrics.values())
-                        if max_time > 0:
-                            normalized_value = 1 - (metrics[metric] / max_time)
-                            score += normalized_value * abs(weight)
+                    # For latency, lower is better, so we use 1/latency
+                    if metric == "latency" and metrics[metric] > 0:
+                        score += weight * (1 / metrics[metric])
                     else:
-                        score += metrics[metric] * weight
+                        score += weight * metrics[metric]
             
             scores[strategy] = score
         
-        # Return the strategy with the highest score
-        if scores:
-            return max(scores.items(), key=lambda x: x[1])[0]
-        return None
+        # Find the strategy with the highest score
+        if not scores:
+            return None
+            
+        best_strategy = max(scores.items(), key=lambda x: x[1])[0]
+        return best_strategy
     
     def _estimate_tokens(self, text: str) -> int:
         """
