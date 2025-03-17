@@ -601,28 +601,111 @@ class VisualizationDashboard:
             
             df = pd.DataFrame(data)
             
+            # Color scheme
+            colors = {
+                best: '#4cc9f0',  # Best strategy color
+                'default': ['#4361ee', '#3a0ca3', '#7209b7', '#f72585']  # Colors for other strategies
+            }
+            
             fig = make_subplots(
                 rows=2, cols=2,
                 specs=[[{"type": "bar"}, {"type": "bar"}],
                        [{"type": "bar"}, {"type": "bar"}]],
                 subplot_titles=("Context Precision", "Token Efficiency", 
-                               "Retrieval Time (s)", "Context Tokens")
+                               "Retrieval Time (s)", "Context Tokens"),
+                vertical_spacing=0.16
             )
             
+            # Create color map for strategies
+            color_map = {}
+            for i, strategy in enumerate(df["strategy"]):
+                if strategy == best:
+                    color_map[strategy] = colors[best]
+                else:
+                    color_map[strategy] = colors['default'][i % len(colors['default'])]
+            
             # Add bars for each metric
-            fig.add_trace(go.Bar(x=df["strategy"], y=df["context_precision"], name="Context Precision"),
-                         row=1, col=1)
-            fig.add_trace(go.Bar(x=df["strategy"], y=df["token_efficiency"], name="Token Efficiency"),
-                         row=1, col=2)
-            fig.add_trace(go.Bar(x=df["strategy"], y=df["retrieval_time"], name="Retrieval Time"),
-                         row=2, col=1)
-            fig.add_trace(go.Bar(x=df["strategy"], y=df["context_tokens"], name="Context Tokens"),
-                         row=2, col=2)
+            fig.add_trace(
+                go.Bar(
+                    x=df["strategy"], 
+                    y=df["context_precision"], 
+                    name="Context Precision",
+                    marker_color=[color_map[s] for s in df["strategy"]],
+                    hovertemplate='<b>%{x}</b><br>Precision: %{y:.4f}<extra></extra>'
+                ),
+                row=1, col=1
+            )
+            
+            fig.add_trace(
+                go.Bar(
+                    x=df["strategy"], 
+                    y=df["token_efficiency"], 
+                    name="Token Efficiency",
+                    marker_color=[color_map[s] for s in df["strategy"]],
+                    hovertemplate='<b>%{x}</b><br>Efficiency: %{y:.4f}<extra></extra>'
+                ),
+                row=1, col=2
+            )
+            
+            fig.add_trace(
+                go.Bar(
+                    x=df["strategy"], 
+                    y=df["retrieval_time"], 
+                    name="Retrieval Time",
+                    marker_color=[color_map[s] for s in df["strategy"]],
+                    hovertemplate='<b>%{x}</b><br>Time: %{y:.2f}s<extra></extra>'
+                ),
+                row=2, col=1
+            )
+            
+            fig.add_trace(
+                go.Bar(
+                    x=df["strategy"], 
+                    y=df["context_tokens"], 
+                    name="Context Tokens",
+                    marker_color=[color_map[s] for s in df["strategy"]],
+                    hovertemplate='<b>%{x}</b><br>Tokens: %{y}<extra></extra>'
+                ),
+                row=2, col=2
+            )
             
             fig.update_layout(
                 height=600,
-                title_text=f"Performance Metrics for Query: {query_results['query_text'][:50]}...",
-                showlegend=False
+                title={
+                    'text': f"Performance Metrics for Query",
+                    'y': 0.98,
+                    'x': 0.5,
+                    'xanchor': 'center',
+                    'yanchor': 'top',
+                    'font': dict(size=18, family='Inter, sans-serif')
+                },
+                showlegend=False,
+                font=dict(family='Inter, sans-serif'),
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                margin=dict(l=60, r=60, t=100, b=60)
+            )
+            
+            # Add query as subtitle
+            fig.add_annotation(
+                text=f"<i>\"{query_results['query_text'][:75]}...\"</i>" if len(query_results['query_text']) > 75 else f"<i>\"{query_results['query_text']}\"</i>",
+                xref="paper", yref="paper",
+                x=0.5, y=0.99,
+                showarrow=False,
+                font=dict(size=12, color="#666666", family='Inter, sans-serif'),
+                xanchor='center'
+            )
+            
+            # Update axis properties
+            fig.update_xaxes(
+                tickangle=30,
+                tickfont=dict(size=10),
+                gridcolor='#f0f0f0'
+            )
+            
+            fig.update_yaxes(
+                gridcolor='#f0f0f0',
+                tickfont=dict(size=10)
             )
             
             # Generate chunks display
@@ -639,27 +722,80 @@ class VisualizationDashboard:
                         chunks = metrics["chunks_retrieved"]
                     
                     if chunks:
-                        chunks_display.append(html.Div([
-                            html.H4(f"Strategy: {strategy}"),
-                            html.Table([
-                                html.Thead(
-                                    html.Tr([
-                                        html.Th("Chunk #"),
-                                        html.Th("Similarity"),
-                                        html.Th("Text Preview")
-                                    ])
-                                ),
-                                html.Tbody([
-                                    html.Tr([
-                                        html.Td(i+1),
-                                        html.Td(f"{chunk.get('similarity', 0):.4f}" if isinstance(chunk, dict) and 'similarity' in chunk else "N/A"),
-                                        html.Td(chunk.get("text", "") if isinstance(chunk, dict) else (
-                                            chunk[:100] + "..." if isinstance(chunk, str) and len(chunk) > 100 else str(chunk)[:100]
-                                        ))
-                                    ]) for i, chunk in enumerate(chunks)
-                                ])
-                            ], style={"width": "100%", "border": "1px solid #ddd", "borderCollapse": "collapse"})
-                        ], style={"marginBottom": "20px"}))
+                        # Create table rows for each chunk
+                        rows = []
+                        for i, chunk in enumerate(chunks):
+                            similarity = (f"{chunk.get('similarity', 0):.4f}" 
+                                        if isinstance(chunk, dict) and 'similarity' in chunk 
+                                        else "N/A")
+                            
+                            # Get text content with proper handling
+                            if isinstance(chunk, dict):
+                                text = chunk.get("text", "")
+                            elif isinstance(chunk, str):
+                                text = chunk[:100] + "..." if len(chunk) > 100 else chunk
+                            else:
+                                text = str(chunk)[:100]
+                            
+                            # Add row with modern styling
+                            rows.append(
+                                html.Tr([
+                                    html.Td(i+1, style={"width": "80px", "textAlign": "center"}),
+                                    html.Td(similarity, style={"width": "120px", "textAlign": "center"}),
+                                    html.Td(text, style={"wordBreak": "break-word"})
+                                ], style={"borderBottom": "1px solid #e0e0e0"})
+                            )
+                        
+                        # Add strategy with chunks
+                        chunks_display.append(
+                            html.Div([
+                                # Strategy header with badge
+                                html.Div([
+                                    html.Span(
+                                        strategy, 
+                                        style={
+                                            "backgroundColor": color_map.get(strategy, "#4361ee"),
+                                            "color": "white",
+                                            "padding": "6px 12px",
+                                            "borderRadius": "16px",
+                                            "fontWeight": "500",
+                                            "fontSize": "14px",
+                                            "display": "inline-block"
+                                        }
+                                    ),
+                                    html.Span(
+                                        f"{len(chunks)} chunks retrieved", 
+                                        style={
+                                            "marginLeft": "10px", 
+                                            "fontSize": "14px",
+                                            "color": "#666"
+                                        }
+                                    )
+                                ], style={"marginBottom": "15px"}),
+                                
+                                # Chunks table
+                                html.Table([
+                                    html.Thead(
+                                        html.Tr([
+                                            html.Th("Chunk #", style={"width": "80px", "textAlign": "center"}),
+                                            html.Th("Similarity", style={"width": "120px", "textAlign": "center"}),
+                                            html.Th("Text Preview")
+                                        ], style={"backgroundColor": "#f8f9fa", "borderBottom": "2px solid #dee2e6"})
+                                    ),
+                                    html.Tbody(rows)
+                                ], style={"width": "100%", "borderCollapse": "collapse", "fontSize": "14px"})
+                            ], style={"marginBottom": "30px"})
+                        )
+            
+            # If no chunks found, display a message
+            if not chunks_display:
+                chunks_display = [
+                    html.Div(
+                        html.P("No chunk data available for this query", 
+                              style={"color": "#666", "fontStyle": "italic", "textAlign": "center"}),
+                        style={"padding": "20px"}
+                    )
+                ]
             
             # Generate answers display
             answers_display = []
@@ -667,13 +803,48 @@ class VisualizationDashboard:
                 if "error" not in metrics and "answer" in metrics:
                     answer = metrics["answer"]
                     
-                    answers_display.append(html.Div([
-                        html.H4(f"Strategy: {strategy}"),
-                        html.Div(
-                            html.P(answer),
-                            style={"border": "1px solid #ddd", "padding": "10px", "borderRadius": "5px"}
-                        )
-                    ], style={"marginBottom": "20px"}))
+                    # Create answer display with modern styling
+                    answers_display.append(
+                        html.Div([
+                            # Strategy header with badge
+                            html.Div([
+                                html.Span(
+                                    strategy, 
+                                    style={
+                                        "backgroundColor": color_map.get(strategy, "#4361ee"),
+                                        "color": "white",
+                                        "padding": "6px 12px",
+                                        "borderRadius": "16px",
+                                        "fontWeight": "500",
+                                        "fontSize": "14px",
+                                        "display": "inline-block"
+                                    }
+                                )
+                            ], style={"marginBottom": "15px"}),
+                            
+                            # Answer content
+                            html.Div(
+                                html.P(answer, style={"margin": "0", "lineHeight": "1.6"}),
+                                style={
+                                    "border": "1px solid #e0e0e0", 
+                                    "padding": "15px", 
+                                    "borderRadius": "8px",
+                                    "backgroundColor": "#f9f9f9",
+                                    "fontSize": "14px"
+                                }
+                            )
+                        ], style={"marginBottom": "30px"})
+                    )
+            
+            # If no answers found, display a message
+            if not answers_display:
+                answers_display = [
+                    html.Div(
+                        html.P("No answer data available for this query", 
+                              style={"color": "#666", "fontStyle": "italic", "textAlign": "center"}),
+                        style={"padding": "20px"}
+                    )
+                ]
             
             return fig, chunks_display, answers_display
         
@@ -1319,6 +1490,12 @@ class VisualizationDashboard:
                 color = colors['default'][i % len(colors['default'])]
                 line_width = 2
             
+            # Convert hex color to rgba for fill with transparency
+            # Extract hex color without # and convert to RGB
+            hex_color = color.lstrip('#')
+            rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            fill_color = f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.2)'
+            
             fig.add_trace(go.Scatterpolar(
                 r=values,
                 theta=radar_metrics,
@@ -1326,7 +1503,7 @@ class VisualizationDashboard:
                 name=strategy,
                 line_color=color,
                 line_width=line_width,
-                fillcolor=color + '20'  # Add transparency to fill color
+                fillcolor=fill_color
             ))
         
         fig.update_layout(
