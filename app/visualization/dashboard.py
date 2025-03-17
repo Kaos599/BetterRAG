@@ -144,11 +144,27 @@ class VisualizationDashboard:
             return
         
         # Create app
-        app = Dash(__name__)
+        app = Dash(__name__, 
+                 external_stylesheets=[
+                     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+                 ])
         
         # Convert aggregated metrics to DataFrame for easier handling
         strategies = list(aggregated.keys())
-        metrics_df = pd.DataFrame(aggregated).T.reset_index()
+        
+        # Make sure we have all the expected keys in the aggregated metrics
+        normalized_metrics = {}
+        for strategy, metrics in aggregated.items():
+            normalized_metrics[strategy] = {
+                "context_precision": metrics.get("context_precision", metrics.get("avg_context_precision", 0)),
+                "token_efficiency": metrics.get("token_efficiency", metrics.get("avg_token_efficiency", 0)),
+                "answer_relevance": metrics.get("answer_relevance", metrics.get("avg_answer_relevance", 0)),
+                "latency": metrics.get("latency", metrics.get("avg_total_time", metrics.get("avg_latency", 0))),
+                "combined_score": metrics.get("combined_score", metrics.get("avg_combined_score", 0)),
+                "chunk_similarities": metrics.get("chunk_similarities", metrics.get("avg_chunk_similarities", 0))
+            }
+        
+        metrics_df = pd.DataFrame(normalized_metrics).T.reset_index()
         metrics_df = metrics_df.rename(columns={"index": "strategy"})
         
         # Create dropdown options for queries
@@ -156,100 +172,400 @@ class VisualizationDashboard:
         query_options = [{"label": results[q]["query_text"][:50] + "..." if len(results[q]["query_text"]) > 50 else results[q]["query_text"], 
                          "value": q} for q in queries]
         
+        # Define custom CSS for the dashboard
+        app.index_string = '''
+        <!DOCTYPE html>
+        <html>
+            <head>
+                {%metas%}
+                <title>RAG Chunking Evaluation Dashboard</title>
+                {%favicon%}
+                {%css%}
+                <style>
+                    :root {
+                        --primary-color: #4361ee;
+                        --secondary-color: #3a0ca3;
+                        --success-color: #4cc9f0;
+                        --warning-color: #f72585;
+                        --light-bg: #f8f9fa;
+                        --dark-text: #212529;
+                        --light-text: #f8f9fa;
+                        --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    }
+                    
+                    body {
+                        font-family: 'Inter', sans-serif;
+                        background-color: #f5f7fa;
+                        color: var(--dark-text);
+                        margin: 0;
+                        padding: 0;
+                    }
+                    
+                    .container {
+                        max-width: 1400px;
+                        margin: 0 auto;
+                        padding: 20px;
+                    }
+                    
+                    .header {
+                        background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+                        color: white;
+                        padding: 20px 30px;
+                        border-radius: 12px;
+                        margin-bottom: 30px;
+                        box-shadow: var(--card-shadow);
+                    }
+                    
+                    .header h1 {
+                        margin: 0;
+                        font-weight: 700;
+                        font-size: 28px;
+                    }
+                    
+                    .card {
+                        background: white;
+                        border-radius: 12px;
+                        padding: 20px;
+                        margin-bottom: 25px;
+                        box-shadow: var(--card-shadow);
+                    }
+                    
+                    .card-title {
+                        font-size: 18px;
+                        font-weight: 600;
+                        margin-top: 0;
+                        margin-bottom: 20px;
+                        color: var(--primary-color);
+                        display: flex;
+                        align-items: center;
+                    }
+                    
+                    .card-title i {
+                        margin-right: 8px;
+                    }
+                    
+                    .status-card {
+                        background: white;
+                        border-radius: 12px;
+                        padding: 15px;
+                        display: flex;
+                        flex-direction: column;
+                        box-shadow: var(--card-shadow);
+                    }
+                    
+                    .status-card .label {
+                        font-size: 14px;
+                        color: #6c757d;
+                        margin-bottom: 5px;
+                    }
+                    
+                    .status-card .value {
+                        font-size: 22px;
+                        font-weight: 600;
+                        color: var(--primary-color);
+                    }
+                    
+                    .best-strategy-card {
+                        background: linear-gradient(145deg, #a8ff78, #78ffd6);
+                        color: #2b2b2b;
+                        border-radius: 12px;
+                        padding: 20px;
+                        margin-bottom: 25px;
+                        box-shadow: var(--card-shadow);
+                    }
+                    
+                    .best-strategy-card h2 {
+                        margin-top: 0;
+                        margin-bottom: 10px;
+                        font-size: 20px;
+                        font-weight: 600;
+                    }
+                    
+                    .best-strategy-card h3 {
+                        font-size: 28px;
+                        margin: 10px 0;
+                    }
+                    
+                    .best-strategy-card p {
+                        margin: 0;
+                        font-size: 15px;
+                    }
+                    
+                    .section-title {
+                        font-size: 22px;
+                        font-weight: 600;
+                        margin: 30px 0 20px 0;
+                        color: var(--secondary-color);
+                    }
+                    
+                    .tabs-container .tab-content {
+                        background: white;
+                        padding: 20px;
+                        border-radius: 0 0 12px 12px;
+                        border-top: none;
+                    }
+                    
+                    .dash-table-container {
+                        overflow-x: auto;
+                    }
+                    
+                    .dash-table {
+                        border-collapse: collapse;
+                        width: 100%;
+                    }
+                    
+                    .dash-table th {
+                        background-color: #f8f9fa;
+                        padding: 12px 15px;
+                        text-align: left;
+                        font-weight: 600;
+                    }
+                    
+                    .dash-table td {
+                        padding: 10px 15px;
+                        border-top: 1px solid #e9ecef;
+                    }
+                    
+                    .query-dropdown-container {
+                        background: white;
+                        border-radius: 12px;
+                        padding: 20px;
+                        margin-bottom: 20px;
+                        box-shadow: var(--card-shadow);
+                    }
+                    
+                    .dropdown-label {
+                        font-weight: 500;
+                        margin-bottom: 10px;
+                        display: block;
+                    }
+                    
+                    .Select-control {
+                        border-radius: 8px;
+                        border: 1px solid #ced4da;
+                    }
+                    
+                    .Select-control:hover {
+                        border-color: var(--primary-color);
+                    }
+                    
+                    /* Dashboard tabs styling */
+                    .dash-tab {
+                        padding: 15px 20px;
+                        font-weight: 500;
+                    }
+                    
+                    .dash-tab--selected {
+                        background-color: white;
+                        color: var(--primary-color);
+                        border-left: 1px solid #dee2e6;
+                        border-right: 1px solid #dee2e6;
+                        border-top: 3px solid var(--primary-color);
+                        border-bottom: none;
+                    }
+                    
+                    /* Highlight row for best strategy */
+                    .highlight-row {
+                        background-color: rgba(168, 255, 120, 0.2);
+                        font-weight: 500;
+                    }
+                    
+                    /* Strategy metrics cards */
+                    .metrics-grid {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                        gap: 20px;
+                        margin-bottom: 25px;
+                    }
+                    
+                    /* Responsive adjustments */
+                    @media (max-width: 768px) {
+                        .metrics-grid {
+                            grid-template-columns: 1fr;
+                        }
+                        
+                        .header {
+                            padding: 15px;
+                        }
+                        
+                        .header h1 {
+                            font-size: 22px;
+                        }
+                    }
+                </style>
+                {%scripts%}
+            </head>
+            <body>
+                {%app_entry%}
+                <footer>
+                    {%config%}
+                    {%scripts%}
+                    {%renderer%}
+                </footer>
+            </body>
+        </html>
+        '''
+        
         # Layout
         app.layout = html.Div([
-            html.H1("Chunking Strategy Evaluation Dashboard"),
-            
+            # Header
             html.Div([
-                html.H2("Best Strategy"),
+                html.H1("RAG Chunking Strategy Evaluation Dashboard")
+            ], className="header"),
+            
+            # Main content container
+            html.Div([
+                # Top metrics summary
                 html.Div([
-                    html.H3(best),
-                    html.P(f"Based on the evaluation, the '{best}' strategy performed best overall.")
-                ], style={"border": "2px solid green", "padding": "10px", "border-radius": "5px"})
-            ]),
-            
-            html.Hr(),
-            
-            html.H2("Aggregated Performance Metrics"),
-            
-            # Strategy comparison tabs
-            dcc.Tabs([
-                dcc.Tab(label="Metrics Table", children=[
-                    dash_table.DataTable(
-                        id="metrics-table",
-                        columns=[
-                            {"name": "Strategy", "id": "strategy"},
-                            {"name": "Context Precision", "id": "context_precision"},
-                            {"name": "Token Efficiency", "id": "token_efficiency"},
-                            {"name": "Answer Relevance", "id": "answer_relevance"},
-                            {"name": "Latency (s)", "id": "latency"},
-                            {"name": "Combined Score", "id": "combined_score"},
-                        ],
-                        data=metrics_df.to_dict("records"),
-                        style_data_conditional=[
-                            {
-                                "if": {"row_index": metrics_df[metrics_df["strategy"] == best].index[0]},
-                                "backgroundColor": "rgba(0, 255, 0, 0.2)",
-                                "fontWeight": "bold"
-                            }
-                        ],
-                        sort_action="native",
-                        sort_mode="multi",
-                        style_table={"overflowX": "auto"}
-                    )
+                    # Best strategy card
+                    html.Div([
+                        html.H2("Best Performing Strategy"),
+                        html.H3(best),
+                        html.P(f"Based on comprehensive evaluation across multiple queries and metrics")
+                    ], className="best-strategy-card"),
+                    
+                    # Key metrics grid
+                    html.Div([
+                        # Count of strategies
+                        html.Div([
+                            html.Div("Strategies Evaluated", className="label"),
+                            html.Div(f"{len(strategies)}", className="value")
+                        ], className="status-card"),
+                        
+                        # Count of queries
+                        html.Div([
+                            html.Div("Queries Analyzed", className="label"),
+                            html.Div(f"{len(queries)}", className="value")
+                        ], className="status-card"),
+                        
+                        # Best score
+                        html.Div([
+                            html.Div("Top Combined Score", className="label"),
+                            html.Div(f"{normalized_metrics[best]['combined_score']:.2f}" if best in normalized_metrics else "N/A", className="value")
+                        ], className="status-card"),
+                    ], className="metrics-grid")
                 ]),
                 
-                dcc.Tab(label="Precision & Efficiency", children=[
-                    dcc.Graph(
-                        id="precision-efficiency-chart",
-                        figure=self._generate_plotly_precision_chart(return_fig=True)
-                    )
-                ]),
+                # Aggregated Performance section
+                html.H2("Aggregated Performance Metrics", className="section-title"),
                 
-                dcc.Tab(label="Time & Tokens", children=[
-                    dcc.Graph(
-                        id="time-tokens-chart",
-                        figure=self._generate_plotly_time_chart(return_fig=True)
-                    )
-                ]),
+                # Tabs for different metric views
+                html.Div([
+                    dcc.Tabs([
+                        dcc.Tab(
+                            label="📊 Metrics Table", 
+                            children=[
+                                dash_table.DataTable(
+                                    id="metrics-table",
+                                    columns=[
+                                        {"name": "Strategy", "id": "strategy"},
+                                        {"name": "Context Precision", "id": "context_precision", "format": {"specifier": ".4f"}},
+                                        {"name": "Token Efficiency", "id": "token_efficiency", "format": {"specifier": ".4f"}},
+                                        {"name": "Answer Relevance", "id": "answer_relevance", "format": {"specifier": ".4f"}},
+                                        {"name": "Latency (s)", "id": "latency", "format": {"specifier": ".2f"}},
+                                        {"name": "Combined Score", "id": "combined_score", "format": {"specifier": ".4f"}},
+                                    ],
+                                    data=metrics_df.to_dict("records"),
+                                    style_data_conditional=[
+                                        {
+                                            "if": {"row_index": metrics_df[metrics_df["strategy"] == best].index[0] if best in metrics_df["strategy"].values else -1},
+                                            "backgroundColor": "rgba(168, 255, 120, 0.2)",
+                                            "fontWeight": "500"
+                                        }
+                                    ],
+                                    style_header={
+                                        'backgroundColor': '#f8f9fa',
+                                        'fontWeight': 'bold',
+                                        'border': '1px solid #ddd'
+                                    },
+                                    style_cell={
+                                        'padding': '12px 15px',
+                                        'textAlign': 'left',
+                                        'fontFamily': 'Inter, sans-serif'
+                                    },
+                                    style_data={
+                                        'border': '1px solid #f0f0f0'
+                                    },
+                                    sort_action="native",
+                                    sort_mode="multi",
+                                    style_table={"overflowX": "auto"}
+                                )
+                            ],
+                            className="dash-tab",
+                            selected_className="dash-tab--selected"
+                        ),
+                        
+                        dcc.Tab(
+                            label="📈 Precision & Efficiency", 
+                            children=[
+                                dcc.Graph(
+                                    id="precision-efficiency-chart",
+                                    figure=self._generate_plotly_precision_chart(return_fig=True)
+                                )
+                            ],
+                            className="dash-tab",
+                            selected_className="dash-tab--selected"
+                        ),
+                        
+                        dcc.Tab(
+                            label="⏱️ Time & Tokens", 
+                            children=[
+                                dcc.Graph(
+                                    id="time-tokens-chart",
+                                    figure=self._generate_plotly_time_chart(return_fig=True)
+                                )
+                            ],
+                            className="dash-tab",
+                            selected_className="dash-tab--selected"
+                        ),
+                        
+                        dcc.Tab(
+                            label="🎯 Overall Comparison", 
+                            children=[
+                                dcc.Graph(
+                                    id="radar-chart",
+                                    figure=self._generate_plotly_radar_chart(return_fig=True)
+                                )
+                            ],
+                            className="dash-tab",
+                            selected_className="dash-tab--selected"
+                        ),
+                    ], className="tabs-container")
+                ], className="card"),
                 
-                dcc.Tab(label="Overall Comparison", children=[
-                    dcc.Graph(
-                        id="radar-chart",
-                        figure=self._generate_plotly_radar_chart(return_fig=True)
+                # Query-specific results section
+                html.H2("Query-Specific Results", className="section-title"),
+                
+                # Query selection dropdown
+                html.Div([
+                    html.Label("Select a query to analyze:", className="dropdown-label"),
+                    dcc.Dropdown(
+                        id="query-dropdown",
+                        options=query_options,
+                        value=queries[0] if queries else None,
+                        clearable=False
                     )
-                ]),
-            ]),
-            
-            html.Hr(),
-            
-            html.H2("Query-Specific Results"),
-            
-            html.Div([
-                html.Label("Select Query:"),
-                dcc.Dropdown(
-                    id="query-dropdown",
-                    options=query_options,
-                    value=queries[0] if queries else None
-                )
-            ]),
-            
-            html.Div([
-                dcc.Graph(id="query-metrics-chart")
-            ]),
-            
-            html.Div([
-                html.H3("Retrieved Chunks"),
-                html.Div(id="chunks-container")
-            ]) if self.show_chunks else html.Div(),
-            
-            html.Hr(),
-            
-            html.Div([
-                html.H3("Generated Answers"),
-                html.Div(id="answers-container")
-            ])
-        ], style={"margin": "20px", "maxWidth": "1200px"})
+                ], className="query-dropdown-container"),
+                
+                # Query results visualization
+                html.Div([
+                    dcc.Graph(id="query-metrics-chart")
+                ], className="card"),
+                
+                # Retrieved chunks section
+                html.Div([
+                    html.H2("Retrieved Chunks", className="card-title"),
+                    html.Div(id="chunks-container")
+                ], className="card") if self.show_chunks else html.Div(),
+                
+                # Generated answers section
+                html.Div([
+                    html.H2("Generated Answers", className="card-title"),
+                    html.Div(id="answers-container")
+                ], className="card")
+                
+            ], className="container")
+        ])
         
         # Callbacks
         @app.callback(
@@ -312,28 +628,38 @@ class VisualizationDashboard:
             # Generate chunks display
             chunks_display = []
             for strategy, metrics in query_results["results"].items():
-                if "error" not in metrics and "answer" in metrics:
-                    chunks = metrics.get("chunks", [])
+                if "error" not in metrics:
+                    # Try to get chunks from different possible locations in the data structure
+                    chunks = []
+                    if "chunks" in metrics:
+                        chunks = metrics["chunks"]
+                    elif "similar_chunks" in metrics:
+                        chunks = metrics["similar_chunks"]
+                    elif "chunks_retrieved" in metrics and isinstance(metrics["chunks_retrieved"], list):
+                        chunks = metrics["chunks_retrieved"]
                     
-                    chunks_display.append(html.Div([
-                        html.H4(f"Strategy: {strategy}"),
-                        html.Table([
-                            html.Thead(
-                                html.Tr([
-                                    html.Th("Chunk #"),
-                                    html.Th("Similarity"),
-                                    html.Th("Text Preview")
+                    if chunks:
+                        chunks_display.append(html.Div([
+                            html.H4(f"Strategy: {strategy}"),
+                            html.Table([
+                                html.Thead(
+                                    html.Tr([
+                                        html.Th("Chunk #"),
+                                        html.Th("Similarity"),
+                                        html.Th("Text Preview")
+                                    ])
+                                ),
+                                html.Tbody([
+                                    html.Tr([
+                                        html.Td(i+1),
+                                        html.Td(f"{chunk.get('similarity', 0):.4f}" if isinstance(chunk, dict) and 'similarity' in chunk else "N/A"),
+                                        html.Td(chunk.get("text", "") if isinstance(chunk, dict) else (
+                                            chunk[:100] + "..." if isinstance(chunk, str) and len(chunk) > 100 else str(chunk)[:100]
+                                        ))
+                                    ]) for i, chunk in enumerate(chunks)
                                 ])
-                            ),
-                            html.Tbody([
-                                html.Tr([
-                                    html.Td(i+1),
-                                    html.Td(f"{chunk.get('similarity', 0):.4f}" if isinstance(chunk, dict) else "N/A"),
-                                    html.Td(chunk.get("text", "") if isinstance(chunk, dict) else str(chunk)[:100])
-                                ]) for i, chunk in enumerate(chunks)
-                            ])
-                        ], style={"width": "100%", "border": "1px solid #ddd", "borderCollapse": "collapse"})
-                    ], style={"marginBottom": "20px"}))
+                            ], style={"width": "100%", "border": "1px solid #ddd", "borderCollapse": "collapse"})
+                        ], style={"marginBottom": "20px"}))
             
             # Generate answers display
             answers_display = []
@@ -661,11 +987,22 @@ class VisualizationDashboard:
         })
         
         for strategy, metrics in self.aggregated.items():
+            # Get metrics with fallbacks
+            precision = metrics.get("context_precision", metrics.get("avg_context_precision", 0))
+            efficiency = metrics.get("token_efficiency", metrics.get("avg_token_efficiency", 0))
+            
             df = pd.concat([df, pd.DataFrame({
                 "Strategy": [strategy],
-                "Precision": [metrics.get("avg_context_precision", 0)],
-                "Efficiency": [metrics.get("avg_token_efficiency", 0)]
+                "Precision": [precision],
+                "Efficiency": [efficiency]
             })], ignore_index=True)
+        
+        # Color scheme
+        colors = {
+            self.best_strategy: '#4cc9f0',  # Special color for best strategy
+            'precision': '#4361ee',
+            'efficiency': '#3a0ca3'
+        }
         
         fig = make_subplots(rows=1, cols=2, 
                           subplot_titles=("Context Precision", "Token Efficiency"))
@@ -676,7 +1013,8 @@ class VisualizationDashboard:
                 x=df["Strategy"],
                 y=df["Precision"],
                 name="Precision",
-                marker_color=['green' if s == self.best_strategy else 'royalblue' for s in df["Strategy"]]
+                marker_color=[colors[self.best_strategy] if s == self.best_strategy else colors['precision'] for s in df["Strategy"]],
+                hovertemplate='<b>%{x}</b><br>Precision: %{y:.4f}<extra></extra>'
             ),
             row=1, col=1
         )
@@ -687,20 +1025,42 @@ class VisualizationDashboard:
                 x=df["Strategy"],
                 y=df["Efficiency"],
                 name="Efficiency",
-                marker_color=['green' if s == self.best_strategy else 'lightgreen' for s in df["Strategy"]]
+                marker_color=[colors[self.best_strategy] if s == self.best_strategy else colors['efficiency'] for s in df["Strategy"]],
+                hovertemplate='<b>%{x}</b><br>Efficiency: %{y:.4f}<extra></extra>'
             ),
             row=1, col=2
         )
         
         fig.update_layout(
-            title_text="Precision and Efficiency by Chunking Strategy",
+            title={
+                'text': "Precision and Efficiency by Chunking Strategy",
+                'y': 0.95,
+                'x': 0.5,
+                'xanchor': 'center',
+                'yanchor': 'top',
+                'font': dict(size=18, family='Inter, sans-serif')
+            },
             height=500,
             width=900,
-            showlegend=False
+            showlegend=False,
+            font=dict(family='Inter, sans-serif'),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            margin=dict(l=60, r=60, t=80, b=60)
         )
         
-        # Set y-axis range
-        fig.update_yaxes(range=[0, 1])
+        # Set y-axis range and grid
+        fig.update_yaxes(
+            range=[0, 1], 
+            gridcolor='#f0f0f0',
+            tickfont=dict(size=10)
+        )
+        
+        # Set x-axis properties
+        fig.update_xaxes(
+            tickangle=30,
+            tickfont=dict(size=10)
+        )
         
         if return_fig:
             return fig
@@ -758,33 +1118,52 @@ class VisualizationDashboard:
         })
         
         for strategy, metrics in self.aggregated.items():
+            # Get time metrics with fallbacks
+            retrieval_time = metrics.get("retrieval_time", metrics.get("avg_retrieval_time", 0))
+            generation_time = metrics.get("generation_time", metrics.get("avg_generation_time", 0))
+            
+            # If we have latency but not detailed times, use latency as retrieval time
+            if retrieval_time == 0 and generation_time == 0:
+                latency = metrics.get("latency", metrics.get("avg_latency", metrics.get("avg_total_time", 0)))
+                retrieval_time = latency
+            
+            # Get token count with fallback
+            tokens = metrics.get("context_tokens", metrics.get("avg_context_tokens", 0))
+            
             df = pd.concat([df, pd.DataFrame({
                 "Strategy": [strategy, strategy],
                 "Type": ["Retrieval", "Generation"],
-                "Time": [
-                    metrics.get("avg_retrieval_time", 0),
-                    metrics.get("avg_generation_time", 0)
-                ],
-                "Tokens": [metrics.get("avg_context_tokens", 0)] * 2
+                "Time": [retrieval_time, generation_time],
+                "Tokens": [tokens] * 2
             })], ignore_index=True)
+        
+        # Color scheme
+        colors = {
+            self.best_strategy: '#4cc9f0',  # Special color for best strategy
+            'retrieval': '#4361ee',
+            'generation': '#3a0ca3',
+            'tokens': '#f72585'
+        }
         
         fig = make_subplots(rows=1, cols=2, 
                           subplot_titles=("Processing Time", "Context Tokens"),
                           specs=[[{"type": "bar"}, {"type": "bar"}]])
         
-        # Add time bars
-        for i, time_type in enumerate(["Retrieval", "Generation"]):
+        # Add time bars - only show types that have non-zero values
+        for time_type, color_key in [("Retrieval", 'retrieval'), ("Generation", 'generation')]:
             subset = df[df["Type"] == time_type]
-            fig.add_trace(
-                go.Bar(
-                    x=subset["Strategy"],
-                    y=subset["Time"],
-                    name=time_type,
-                    marker_color='coral' if time_type == "Retrieval" else 'lightblue',
-                    showlegend=True
-                ),
-                row=1, col=1
-            )
+            if subset["Time"].sum() > 0:  # Only show if we have non-zero times
+                fig.add_trace(
+                    go.Bar(
+                        x=subset["Strategy"],
+                        y=subset["Time"],
+                        name=time_type,
+                        marker_color=colors[color_key],
+                        hovertemplate='<b>%{x}</b><br>' + time_type + ' Time: %{y:.2f}s<extra></extra>',
+                        showlegend=True
+                    ),
+                    row=1, col=1
+                )
         
         # Add token bars
         token_df = df.drop_duplicates("Strategy")
@@ -793,14 +1172,22 @@ class VisualizationDashboard:
                 x=token_df["Strategy"],
                 y=token_df["Tokens"],
                 name="Tokens",
-                marker_color=['green' if s == self.best_strategy else 'orange' for s in token_df["Strategy"]],
+                marker_color=[colors[self.best_strategy] if s == self.best_strategy else colors['tokens'] for s in token_df["Strategy"]],
+                hovertemplate='<b>%{x}</b><br>Tokens: %{y}<extra></extra>',
                 showlegend=False
             ),
             row=1, col=2
         )
         
         fig.update_layout(
-            title_text="Processing Time and Token Usage by Chunking Strategy",
+            title={
+                'text': "Processing Time and Token Usage by Chunking Strategy",
+                'y': 0.95,
+                'x': 0.5,
+                'xanchor': 'center',
+                'yanchor': 'top',
+                'font': dict(size=18, family='Inter, sans-serif')
+            },
             height=500,
             width=1000,
             legend=dict(
@@ -808,8 +1195,25 @@ class VisualizationDashboard:
                 yanchor="bottom",
                 y=1.02,
                 xanchor="right",
-                x=1
-            )
+                x=1,
+                font=dict(family='Inter, sans-serif', size=10)
+            ),
+            font=dict(family='Inter, sans-serif'),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            margin=dict(l=60, r=60, t=80, b=60)
+        )
+        
+        # Update axes
+        fig.update_xaxes(
+            tickangle=30,
+            tickfont=dict(size=10),
+            gridcolor='#f0f0f0'
+        )
+        
+        fig.update_yaxes(
+            gridcolor='#f0f0f0',
+            tickfont=dict(size=10)
         )
         
         if return_fig:
@@ -826,59 +1230,138 @@ class VisualizationDashboard:
         # Prepare data
         strategies = list(self.aggregated.keys())
         
-        # Define the metrics we want to show
-        metrics = [
-            "avg_context_precision",
-            "avg_token_efficiency",
-            "avg_chunk_similarities"
-        ]
+        # Debug: print out available metrics for first strategy
+        if strategies and self.debug:
+            print(f"Available metrics for {strategies[0]}: {self.aggregated[strategies[0]].keys()}")
         
-        # Friendly names for the metrics
-        metric_names = [
-            "Context Precision",
-            "Token Efficiency",
-            "Chunk Similarities"
-        ]
+        # Define the metrics we want to show and create a normalized metrics dict
+        metric_mapping = {
+            "context_precision": ["context_precision", "avg_context_precision"],
+            "token_efficiency": ["token_efficiency", "avg_token_efficiency"],
+            "answer_relevance": ["answer_relevance", "avg_answer_relevance"], 
+            "chunk_similarities": ["chunk_similarities", "avg_chunk_similarities"]
+        }
         
-        # Normalize time (lower is better)
-        time_values = [self.aggregated[strategy].get("avg_total_time", 0) for strategy in strategies]
-        if any(time_values):
-            max_time = max(time_values)
-            for strategy in strategies:
-                time_val = self.aggregated[strategy].get("avg_total_time", 0)
-                self.aggregated[strategy]["normalized_time"] = 1 - (time_val / max_time) if max_time > 0 else 0
+        # Create a normalized metrics dictionary
+        normalized_data = {}
+        for strategy in strategies:
+            normalized_data[strategy] = {}
+            # Extract metrics with fallbacks
+            for metric_key, possible_keys in metric_mapping.items():
+                for key in possible_keys:
+                    if key in self.aggregated[strategy]:
+                        normalized_data[strategy][metric_key] = self.aggregated[strategy][key]
+                        break
+                else:
+                    # Default to 0 if no matching key found
+                    normalized_data[strategy][metric_key] = 0
+        
+        # Handle latency/time metrics
+        for strategy in strategies:
+            # Find time metric with fallbacks
+            time_value = 0
+            for key in ["latency", "avg_latency", "avg_total_time", "total_time"]:
+                if key in self.aggregated[strategy]:
+                    time_value = self.aggregated[strategy][key]
+                    break
             
-            metrics.append("normalized_time")
-            metric_names.append("Time Efficiency")
+            # Store original time value
+            normalized_data[strategy]["time_original"] = time_value
+        
+        # Normalize time values (lower is better)
+        max_time = max([data["time_original"] for strategy, data in normalized_data.items()])
+        if max_time > 0:
+            for strategy in strategies:
+                normalized_data[strategy]["time_efficiency"] = 1 - (normalized_data[strategy]["time_original"] / max_time)
+        else:
+            for strategy in strategies:
+                normalized_data[strategy]["time_efficiency"] = 0
+        
+        # Define the metrics to display on the radar chart
+        display_metrics = [
+            ("context_precision", "Context Precision"),
+            ("token_efficiency", "Token Efficiency"),
+            ("chunk_similarities", "Chunk Similarities"),
+            ("time_efficiency", "Time Efficiency")
+        ]
+        
+        # If answer relevance has non-zero values, include it
+        if any(data["answer_relevance"] > 0 for strategy, data in normalized_data.items()):
+            display_metrics.insert(2, ("answer_relevance", "Answer Relevance"))
+        
+        # Extract metrics and their friendly names
+        metric_keys = [m[0] for m in display_metrics]
+        metric_names = [m[1] for m in display_metrics]
+        
+        # Color scheme
+        colors = {
+            self.best_strategy: '#4cc9f0',  # Highlight color for best strategy
+            'default': ['#4361ee', '#3a0ca3', '#7209b7', '#f72585', '#4cc9f0']  # Colors for other strategies
+        }
         
         # Create the figure
         fig = go.Figure()
         
-        for strategy in strategies:
-            values = [self.aggregated[strategy].get(metric, 0) for metric in metrics]
+        # Add traces for each strategy
+        for i, strategy in enumerate(strategies):
+            # Get values for this strategy
+            values = [normalized_data[strategy].get(metric, 0) for metric in metric_keys]
+            
             # Close the loop by adding the first value at the end
             values.append(values[0])
             radar_metrics = metric_names + [metric_names[0]]
+            
+            # Choose color (special for best strategy)
+            if strategy == self.best_strategy:
+                color = colors[self.best_strategy]
+                line_width = 3
+            else:
+                color = colors['default'][i % len(colors['default'])]
+                line_width = 2
             
             fig.add_trace(go.Scatterpolar(
                 r=values,
                 theta=radar_metrics,
                 fill='toself',
                 name=strategy,
-                line_color='green' if strategy == self.best_strategy else None
+                line_color=color,
+                line_width=line_width,
+                fillcolor=color + '20'  # Add transparency to fill color
             ))
         
         fig.update_layout(
             polar=dict(
                 radialaxis=dict(
                     visible=True,
-                    range=[0, 1]
+                    range=[0, 1],
+                    tickfont=dict(size=10),
+                    tickvals=[0.2, 0.4, 0.6, 0.8],
+                ),
+                angularaxis=dict(
+                    tickfont=dict(size=12, family='Inter, sans-serif'),
                 )
             ),
-            title="Strategy Performance Comparison",
+            title={
+                'text': "Strategy Performance Comparison",
+                'y': 0.95,
+                'x': 0.5,
+                'xanchor': 'center',
+                'yanchor': 'top',
+                'font': dict(size=18, family='Inter, sans-serif')
+            },
             height=600,
             width=800,
-            showlegend=True
+            showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="right",
+                x=0.99,
+                font=dict(family='Inter, sans-serif')
+            ),
+            margin=dict(l=80, r=80, t=80, b=80),
+            paper_bgcolor='white',
+            plot_bgcolor='white',
         )
         
         if return_fig:
