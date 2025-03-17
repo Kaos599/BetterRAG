@@ -1,146 +1,172 @@
-![Frame 46](https://github.com/user-attachments/assets/2d68ab1c-2962-4429-ad87-f91f00a08160)
-# BetterRAG: Text Chunking Evaluation for RAG Pipelines
+<!-- BetterRAG Logo Banner -->
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/2d68ab1c-2962-4429-ad87-f91f00a08160" alt="BetterRAG Logo" width="700px">
+  <h1>BetterRAG</h1>
+  <p><strong>🚀 Supercharge your RAG pipeline with optimized text chunking</strong></p>
+  
+  [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
+  [![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+  [![Dashboard](https://img.shields.io/badge/Dash-Interactive-blue?logo=plotly&logoColor=white)](https://dash.plotly.com/)
+</div>
 
-BetterRAG is a comprehensive application for evaluating different text chunking strategies in Retrieval-Augmented Generation (RAG) pipelines. This tool helps you determine the most effective chunking approach for your specific use case without requiring any code modifications.
+## ✨ Overview
 
-## Features
+**BetterRAG** helps you find the optimal text chunking strategy for your Retrieval-Augmented Generation pipeline through rigorous, data-driven evaluation. Stop guessing which chunking method works best—measure it!
 
-- **Multiple Chunking Strategies**: Fixed-size, recursive (hierarchical), and semantic chunking with configurable parameters
-- **Model Integration**: Support for Azure OpenAI and Google Gemini
-- **MongoDB Integration**: Stores and retrieves document embeddings
-- **Comprehensive Evaluation**: Measures precision, recall, token efficiency, and more
-- **Visualization Dashboard**: Interactive charts and graphs to compare chunking strategies
-- **User-Friendly Configuration**: All settings defined in a single configuration file
+<div align="center">
+  <table>
+    <tr>
+      <td align="center">📊 <b>Compare Strategies</b></td>
+      <td align="center">⚙️ <b>Zero-Code Configuration</b></td>
+      <td align="center">📈 <b>Interactive Dashboard</b></td>
+    </tr>
+  </table>
+</div>
 
-## Setup Instructions
+## 🔎 Why BetterRAG?
+
+Text chunking can make or break your RAG system's performance. Different strategies yield dramatically different results, but the optimal approach depends on your specific documents and use case. BetterRAG provides:
+
+- **Quantitative comparison** between chunking strategies
+- **Visualized metrics** to understand performance differences
+- **Clear recommendations** based on real data
+- **No coding required** to evaluate and improve your pipeline
+
+## 🛠️ Features
+
+<table>
+  <tr>
+    <td width="50%">
+      <h3>🧩 Multiple Chunking Strategies</h3>
+      <ul>
+        <li><b>Fixed-size chunking</b>: Simple token-based splitting</li>
+        <li><b>Recursive chunking</b>: Follows document hierarchy</li>
+        <li><b>Semantic chunking</b>: Preserves meaning and context</li>
+      </ul>
+    </td>
+    <td width="50%">
+      <h3>🤖 LLM Integration</h3>
+      <ul>
+        <li>Azure OpenAI compatibility</li>
+        <li>Google Gemini support</li>
+        <li>Extensible for other models</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <h3>📊 Comprehensive Metrics</h3>
+      <ul>
+        <li>Context precision</li>
+        <li>Token efficiency</li>
+        <li>Answer relevance</li>
+        <li>Latency measurement</li>
+      </ul>
+    </td>
+    <td>
+      <h3>💾 Persistent Storage</h3>
+      <ul>
+        <li>MongoDB integration</li>
+        <li>Reuse embeddings across evaluations</li>
+        <li>Cache results for faster iteration</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Python 3.8+
-- MongoDB installed and running locally (or accessible remotely)
+- MongoDB (local or remote)
 - API keys for Azure OpenAI and/or Google Gemini
 
-### Installation
+### Installation in 3 Steps
 
-1. Clone this repository:
-   ```
-   git clone https://github.com/yourusername/betterrag.git
-   cd betterrag
-   ```
+```bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/betterrag.git
+cd betterrag
 
-2. Install the required dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
+# 2. Install dependencies
+pip install -r requirements.txt
 
-3. Set up your configuration:
-   ```
-   cp config.template.yaml config.yaml
-   ```
+# 3. Set up your configuration
+cp config.template.yaml config.yaml
+# Edit config.yaml with your API keys and preferences
+```
 
-4. Edit the `config.yaml` file to add your API keys and configure your preferences.
+### Running Your First Evaluation
 
-5. Create a data directory with your source documents:
-   ```
-   mkdir -p data/documents
-   ```
+```bash
+# Add your documents to data/documents/
 
-6. Add your documents to the `data/documents` directory.
+# Run the evaluation
+python -m app.main
 
-### Configuration
+# View the interactive dashboard
+# Default: http://127.0.0.1:8050/
+```
 
-BetterRAG uses two configuration files:
+## 📊 Sample Results
 
-1. **`config.template.yaml`**: A template with placeholder values that is tracked in version control.
-2. **`config.yaml`**: Your personal configuration file that contains actual API keys and settings. This file is ignored by Git to keep your credentials safe.
+BetterRAG provides clear visual comparisons between chunking strategies:
 
-All application settings are managed through the `config.yaml` file. You can configure:
+<div align="center">
+  <img src="https://via.placeholder.com/800x400?text=Chunking+Strategy+Comparison+Chart" alt="Comparison Chart" width="80%">
+</div>
 
-- **API Keys**: Add your Azure OpenAI or Google Gemini API keys
-- **Database Settings**: Configure MongoDB connection
-- **Chunking Strategies**: Enable/disable strategies and set parameters
-- **Evaluation Settings**: Set metrics, weights, and retrieval parameters
-- **Visualization Settings**: Configure dashboard and output formats
+Based on comprehensive metrics, BetterRAG will recommend the most effective chunking approach for your specific documents and queries.
+
+## ⚙️ Configuration Options
+
+BetterRAG uses a single YAML configuration file for all settings:
+
+```yaml
+# Chunking strategies to evaluate
+chunking:
+  fixed_size:
+    enabled: true
+    chunk_size: 500
+    chunk_overlap: 50
+  
+  recursive:
+    enabled: true
+    chunk_size: 1000
+    separators: ["\n\n", "\n", " ", ""]
+  
+  semantic:
+    enabled: true
+    model: "all-MiniLM-L6-v2"
+
+# API credentials (or use environment variables)
+api:
+  azure_openai:
+    api_key: ${AZURE_OPENAI_API_KEY}
+    endpoint: ${AZURE_OPENAI_ENDPOINT}
+```
 
 See [config_setup.md](config_setup.md) for detailed configuration instructions.
 
-## Usage
+## 🔧 Advanced Usage
 
-1. After configuring `config.yaml`, run the application:
-   ```
-   python app/main.py
-   ```
+```bash
+# Run dashboard only (using previously processed data)
+python -m app.main --dashboard-only
 
-2. The application will:
-   - Process your source documents using each enabled chunking strategy
-   - Generate embeddings and store them in MongoDB
-   - Run your test queries against each chunking strategy
-   - Calculate evaluation metrics
-   - Generate a visualization dashboard
-   - Provide a final recommendation on the best chunking strategy
+# Reset database before processing
+python -m app.main --reset-db
 
-3. View the results:
-   - Check the terminal for the summary results
-   - Open the dashboard (default: http://127.0.0.1:8050/) for interactive visualizations
-   - Examine the output files in the results directory
+# Use custom config file
+python -m app.main --config my_custom_config.yaml
+```
 
-## Testing the Application
+## 🛠️ Extending BetterRAG
 
-### Prepare Test Data
-
-1. Ensure you have test documents in the `data/documents/` directory.
-
-2. Verify that your test queries are configured in `data/test_queries.json` or update the path in your config.
-
-### Configure Your Environment
-
-1. Make sure your configuration file (`config.yaml`) is properly set up.
-
-2. Set environment variables if using them for API keys:
-   - Windows (PowerShell):
-     ```
-     $env:AZURE_OPENAI_API_KEY="your-api-key"
-     $env:AZURE_OPENAI_ENDPOINT="your-endpoint"
-     $env:MONGODB_CONNECTION_STRING="your-connection-string"
-     ```
-   - Linux/Mac:
-     ```
-     export AZURE_OPENAI_API_KEY=your-api-key
-     export AZURE_OPENAI_ENDPOINT=your-endpoint
-     export MONGODB_CONNECTION_STRING=your-connection-string
-     ```
-
-### Run the Evaluation
-
-1. Process documents and evaluate chunking strategies:
-   ```
-   python -m app.main
-   ```
-
-2. For dashboard-only mode (if data is already processed):
-   ```
-   python -m app.main --dashboard-only
-   ```
-
-3. To reset the database before processing:
-   ```
-   python -m app.main --reset-db
-   ```
-
-4. To use a different configuration file:
-   ```
-   python -m app.main --config my_custom_config.yaml
-   ```
-
-### View Results
-
-1. Check the generated charts and reports in the `results/` directory
-2. Access the interactive dashboard at http://localhost:8050 (or configured port)
-3. Review the evaluation_results.json for detailed metrics
-
-## Customization
-
-### Adding New Chunking Strategies
+### Adding a New Chunking Strategy
 
 1. Create a new chunker implementation in `app/chunkers/`
 2. Register it in `app/chunkers/__init__.py`
@@ -150,18 +176,26 @@ See [config_setup.md](config_setup.md) for detailed configuration instructions.
 
 Extend the `ChunkingEvaluator` class in `app/evaluation/metrics.py` to add new metrics.
 
-## Troubleshooting
+## 🤝 Contributing
 
-- **MongoDB Connection Issues**: Ensure MongoDB is running and the connection string is correct
-- **API Key Errors**: Verify that your API keys are correctly entered in `config.yaml`
-- **Missing Results**: Check that your source documents exist in the correct directory
-- **Dashboard Not Loading**: Ensure the port specified in the configuration is available
-- **Configuration Issues**: Validate your YAML syntax and ensure all required fields are present
+Contributions are welcome! Feel free to:
 
-## License
+- Report bugs and issues
+- Suggest new features or enhancements
+- Add support for additional LLM providers
+- Implement new chunking strategies
+
+## 📜 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Acknowledgements
+---
 
-This tool was built to help researchers and developers optimize their RAG pipelines by providing quantitative comparisons between different chunking strategies. 
+<div align="center">
+  <p>Built with ❤️ for the RAG community</p>
+  <p>
+    <a href="https://github.com/yourusername/betterrag/issues">Report Bug</a>
+    ·
+    <a href="https://github.com/yourusername/betterrag/issues">Request Feature</a>
+  </p>
+</div>
