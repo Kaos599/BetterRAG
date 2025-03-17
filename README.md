@@ -1,3 +1,4 @@
+![Frame 46](https://github.com/user-attachments/assets/2d68ab1c-2962-4429-ad87-f91f00a08160)
 # BetterRAG: Text Chunking Evaluation for RAG Pipelines
 
 BetterRAG is a comprehensive application for evaluating different text chunking strategies in Retrieval-Augmented Generation (RAG) pipelines. This tool helps you determine the most effective chunking approach for your specific use case without requiring any code modifications.
