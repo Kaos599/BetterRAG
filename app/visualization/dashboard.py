@@ -874,6 +874,7 @@ class VisualizationDashboard:
                 th {{ background-color: #f2f2f2; }}
                 .chart {{ margin-bottom: 20px; }}
                 .best {{ font-weight: bold; background-color: #e6ffe6; }}
+                .insights-summary {{ background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
             </style>
         </head>
         <body>
@@ -884,6 +885,8 @@ class VisualizationDashboard:
                     <h2>Final Verdict</h2>
                     <p>Based on comprehensive evaluation, the <strong>{self.best_strategy}</strong> chunking strategy performed best overall.</p>
                 </div>
+                
+                {self.generate_insights_summary()}
                 
                 <h2>Aggregated Performance Metrics</h2>
                 <table>
@@ -1615,4 +1618,130 @@ class VisualizationDashboard:
         if "html" in self.formats:
             fig.write_html(os.path.join(self.output_dir, "combined_metrics_plotly.html"))
         if "png" in self.formats:
-            fig.write_image(os.path.join(self.output_dir, "combined_metrics_plotly.png")) 
+            fig.write_image(os.path.join(self.output_dir, "combined_metrics_plotly.png"))
+    
+    def generate_insights_summary(self):
+        """
+        Generate a summary of insights from the evaluation results
+        comparing the different chunking strategies.
+        
+        Returns:
+            HTML string with insights
+        """
+        if not self.aggregated or not self.results:
+            return "<p>No data available for insights.</p>"
+        
+        strategies = list(self.aggregated.keys())
+        if not strategies or len(strategies) < 2:
+            return "<p>At least two strategies are required for comparison.</p>"
+        
+        # Find best strategy for each metric
+        best_by_metric = {
+            "context_precision": max(strategies, key=lambda s: self.aggregated[s]["context_precision"]),
+            "token_efficiency": max(strategies, key=lambda s: self.aggregated[s]["token_efficiency"]),
+            "latency": min(strategies, key=lambda s: self.aggregated[s]["latency"]) 
+        }
+        
+        # Calculate percentage differences between strategies
+        comparisons = []
+        for i, strategy1 in enumerate(strategies):
+            for strategy2 in strategies[i+1:]:
+                comparison = {
+                    "strategies": (strategy1, strategy2),
+                    "precision_diff": self._calculate_percentage_diff(
+                        self.aggregated[strategy1]["context_precision"], 
+                        self.aggregated[strategy2]["context_precision"]
+                    ),
+                    "efficiency_diff": self._calculate_percentage_diff(
+                        self.aggregated[strategy1]["token_efficiency"], 
+                        self.aggregated[strategy2]["token_efficiency"]
+                    ),
+                    "latency_diff": self._calculate_percentage_diff(
+                        self.aggregated[strategy1]["latency"], 
+                        self.aggregated[strategy2]["latency"],
+                        lower_is_better=True
+                    )
+                }
+                comparisons.append(comparison)
+        
+        # Generate HTML content
+        html = "<div class='insights-summary'>"
+        html += "<h2>Key Insights</h2>"
+        
+        # Overall best strategy
+        html += f"<p>The <strong>{self.best_strategy}</strong> chunking strategy performed best overall based on combined metrics.</p>"
+        
+        # Best by each metric
+        html += "<h3>Best Performers by Metric</h3>"
+        html += "<ul>"
+        html += f"<li><strong>Context Precision:</strong> {best_by_metric['context_precision']} " + \
+                f"({self.aggregated[best_by_metric['context_precision']]['context_precision']:.2f})</li>"
+        html += f"<li><strong>Token Efficiency:</strong> {best_by_metric['token_efficiency']} " + \
+                f"({self.aggregated[best_by_metric['token_efficiency']]['token_efficiency']:.2f})</li>"
+        html += f"<li><strong>Latency:</strong> {best_by_metric['latency']} " + \
+                f"({self.aggregated[best_by_metric['latency']]['latency']:.2f}s)</li>"
+        html += "</ul>"
+        
+        # Strategy comparisons
+        html += "<h3>Strategy Comparisons</h3>"
+        for comp in comparisons:
+            s1, s2 = comp["strategies"]
+            html += f"<h4>{s1} vs {s2}</h4>"
+            html += "<ul>"
+            
+            # Precision comparison
+            better = s1 if comp["precision_diff"] > 0 else s2
+            html += f"<li><strong>Context Precision:</strong> {better} is {abs(comp['precision_diff']):.1f}% better</li>"
+            
+            # Efficiency comparison
+            better = s1 if comp["efficiency_diff"] > 0 else s2
+            html += f"<li><strong>Token Efficiency:</strong> {better} is {abs(comp['efficiency_diff']):.1f}% better</li>"
+            
+            # Latency comparison
+            better = s1 if comp["latency_diff"] < 0 else s2
+            html += f"<li><strong>Latency:</strong> {better} is {abs(comp['latency_diff']):.1f}% faster</li>"
+            
+            html += "</ul>"
+        
+        # Query-specific insights
+        html += "<h3>Query-Specific Insights</h3>"
+        for query_id, query_data in self.results.items():
+            query_text = query_data["query_text"]
+            query_results = query_data["results"]
+            
+            best_for_query = max(query_results.keys(), 
+                                key=lambda s: query_results[s]["combined_score"])
+            
+            html += f"<p><strong>Query:</strong> {query_text}<br>"
+            html += f"<strong>Best Strategy:</strong> {best_for_query} "
+            html += f"(score: {query_results[best_for_query]['combined_score']:.2f})</p>"
+        
+        html += "</div>"
+        return html
+    
+    def _calculate_percentage_diff(self, val1, val2, lower_is_better=False):
+        """
+        Calculate percentage difference between two values.
+        
+        Args:
+            val1: First value
+            val2: Second value
+            lower_is_better: Whether lower values are better (e.g., for latency)
+            
+        Returns:
+            Percentage difference (positive if val1 is better)
+        """
+        if val1 == val2:
+            return 0
+        
+        base = max(val1, val2)
+        if base == 0:
+            return 0
+            
+        diff = ((val1 - val2) / base) * 100
+        
+        # Flip sign if lower values are better
+        if lower_is_better:
+            diff = -diff
+            
+        return diff 

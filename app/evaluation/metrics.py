@@ -182,6 +182,7 @@ class ChunkingEvaluator:
         if not strategies:
             strategies = self.db.get_all_strategies()
         
+        # Initialize results structure
         for i, query_dict in enumerate(queries):
             query_id = f"query_{i}"  # Create a unique ID for each query
             query_text = query_dict["query"]
@@ -191,9 +192,38 @@ class ChunkingEvaluator:
                 "expected_keywords": query_dict.get("expected_keywords", []),
                 "results": {}
             }
+        
+        # Use parallel processing if enabled in config
+        use_parallel = self.config.get('general', {}).get('parallel_evaluation', False)
+        
+        if use_parallel:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import multiprocessing
             
-            for strategy in strategies:
-                results[query_id]["results"][strategy] = self.evaluate_query(query_text, strategy)
+            # Determine number of workers - default to CPU count
+            max_workers = self.config.get('general', {}).get('max_workers', multiprocessing.cpu_count())
+            
+            # Process each strategy-query combination in parallel
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {}
+                for strategy in strategies:
+                    for i, query_dict in enumerate(queries):
+                        query_id = f"query_{i}"
+                        query_text = query_dict["query"]
+                        future = executor.submit(self.evaluate_query, query_text, strategy)
+                        futures[(strategy, query_id)] = future
+                
+                # Collect results as they complete
+                for (strategy, query_id), future in as_completed(futures):
+                    results[query_id]["results"][strategy] = future.result()
+        else:
+            # Sequential processing
+            for i, query_dict in enumerate(queries):
+                query_id = f"query_{i}"
+                query_text = query_dict["query"]
+                
+                for strategy in strategies:
+                    results[query_id]["results"][strategy] = self.evaluate_query(query_text, strategy)
         
         return results
     

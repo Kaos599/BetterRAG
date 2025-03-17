@@ -7,6 +7,9 @@ general:
   data_source: "./data/documents/"  # Directory containing documents to process
   output_directory: "./results/"  # Directory for evaluation results and charts
   test_queries_file: "./data/test_queries.json"  # File containing test queries
+  parallel_evaluation: true  # Enable parallel processing for evaluation
+  max_workers: 4  # Maximum number of worker threads for parallel processing
+  enable_model_caching: true  # Enable caching of model calls
 
 # Model configuration
 model:
