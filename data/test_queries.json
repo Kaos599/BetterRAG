@@ -1,0 +1,22 @@
+[
+    {
+        "query": "What are the key differences between fixed-size and semantic chunking?",
+        "expected_keywords": ["fixed-size", "semantic", "boundary", "context", "overlap", "token"]
+    },
+    {
+        "query": "How does recursive chunking handle document structure?",
+        "expected_keywords": ["recursive", "structure", "hierarchy", "separator", "nested"]
+    },
+    {
+        "query": "What metrics are most important for evaluating chunking strategies?",
+        "expected_keywords": ["precision", "recall", "token efficiency", "latency", "context"]
+    },
+    {
+        "query": "How does chunk size affect retrieval performance?",
+        "expected_keywords": ["size", "retrieval", "performance", "token limit", "context"]
+    },
+    {
+        "query": "What are the best practices for implementing chunking in a RAG system?",
+        "expected_keywords": ["best practices", "implementation", "overlap", "strategy", "optimization"]
+    }
+] 

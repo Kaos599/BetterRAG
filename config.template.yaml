@@ -1,0 +1,81 @@
+# BetterRAG Configuration Template
+# Copy this file to config.yaml and fill in your own values
+
+# General configuration
+general:
+  db_reset: false  # Set to true to clear the database before processing
+  data_source: "./data/documents/"  # Directory containing documents to process
+  output_directory: "./results/"  # Directory for evaluation results and charts
+  test_queries_file: "./data/test_queries.json"  # File containing test queries
+
+# Model configuration
+model:
+  provider: "azure_openai"  # Options: "azure_openai", "gemini"
+  
+  # Azure OpenAI configuration (required if provider is "azure_openai")
+  azure_openai:
+    api_key: "${AZURE_OPENAI_API_KEY}"  # Environment variable or your actual API key
+    api_base: "${AZURE_OPENAI_ENDPOINT}"  # Environment variable or your actual endpoint
+    api_version: "2023-05-15"
+    embedding_deployment: "text-embedding-ada-002"
+    completion_deployment: "gpt-4"
+    max_tokens: 1000
+    temperature: 0.0
+  
+  # Google Gemini configuration (required if provider is "gemini")
+  gemini:
+    api_key: "${GOOGLE_API_KEY}"  # Environment variable or your actual API key
+    embedding_model: "embedding-001"
+    completion_model: "gemini-1.5-pro"
+    max_tokens: 1000
+    temperature: 0.0
+
+# Database configuration
+database:
+  provider: "mongodb"
+  mongodb:
+    connection_string: "mongodb://localhost:27017/"  # Replace with your MongoDB connection string
+    database_name: "betterrag"
+    collection_name: "chunks"
+
+# Chunking strategies to evaluate
+chunking_strategies:
+  fixed_size:
+    enabled: true
+    chunk_size: 500
+    chunk_overlap: 50
+  
+  recursive:
+    enabled: true
+    chunk_size: 500
+    chunk_overlap: 50
+    separators: ["\n\n", "\n", ". ", " ", ""]
+  
+  semantic:
+    enabled: true
+    min_chunk_size: 100
+    max_chunk_size: 600
+    similarity_threshold: 0.7
+
+# Evaluation configuration
+evaluation:
+  top_k: 5  # Number of chunks to retrieve for each query
+  metrics:
+    - "context_precision"
+    - "token_efficiency"
+    - "retrieval_time"
+    - "generation_time"
+  weight:
+    context_precision: 0.4
+    token_efficiency: 0.3
+    retrieval_time: 0.1
+    generation_time: 0.1
+    chunk_similarities: 0.1
+
+# Visualization configuration
+visualization:
+  save_format: ["png", "html"]
+  dashboard:
+    port: 8050
+    debug: false
+    show_individual_chunks: true 
