@@ -8,6 +8,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
 from dash import Dash, html, dcc, Input, Output, dash_table
+from app.evaluation.summary import EvaluationSummarizer
 
 
 class VisualizationDashboard:
@@ -530,6 +531,20 @@ class VisualizationDashboard:
                             className="dash-tab",
                             selected_className="dash-tab--selected"
                         ),
+                        
+                        dcc.Tab(
+                            label="📝 Performance Insights", 
+                            children=[
+                                html.Div([
+                                    html.Iframe(
+                                        srcDoc=self.generate_insights_summary(),
+                                        style={"border": "none", "width": "100%", "height": "600px"}
+                                    )
+                                ], style={"padding": "20px", "backgroundColor": "white"})
+                            ],
+                            className="dash-tab",
+                            selected_className="dash-tab--selected"
+                        ),
                     ], className="tabs-container")
                 ], className="card"),
                 
@@ -587,7 +602,7 @@ class VisualizationDashboard:
                 if "error" not in metrics:
                     data.append({
                         "strategy": strategy,
-                        "retrieval_time": metrics.get("latency", 0),
+                        "retrieval_time": metrics.get("retrieval_time", metrics.get("latency", 0)),
                         "context_precision": metrics.get("context_precision", 0),
                         "token_efficiency": metrics.get("token_efficiency", 0),
                         "answer_relevance": metrics.get("answer_relevance", 0),
@@ -607,13 +622,16 @@ class VisualizationDashboard:
                 'default': ['#4361ee', '#3a0ca3', '#7209b7', '#f72585']  # Colors for other strategies
             }
             
+            # Create subplot figure
             fig = make_subplots(
-                rows=2, cols=2,
+                rows=2, cols=2, 
                 specs=[[{"type": "bar"}, {"type": "bar"}],
                        [{"type": "bar"}, {"type": "bar"}]],
                 subplot_titles=("Context Precision", "Token Efficiency", 
-                               "Retrieval Time (s)", "Context Tokens"),
-                vertical_spacing=0.16
+                              "Retrieval Time (s)", "Context Tokens"),
+                vertical_spacing=0.12,
+                horizontal_spacing=0.1,
+                print_grid=True
             )
             
             # Create color map for strategies
@@ -714,17 +732,29 @@ class VisualizationDashboard:
                 if "error" not in metrics:
                     # Try to get chunks from different possible locations in the data structure
                     chunks = []
-                    if "chunks" in metrics:
-                        chunks = metrics["chunks"]
-                    elif "similar_chunks" in metrics:
+                    
+                    # Debug output to help identify where chunks are stored
+                    print(f"Debug - Strategy {strategy} metrics keys: {metrics.keys()}")
+                    
+                    if "similar_chunks" in metrics and metrics["similar_chunks"]:
                         chunks = metrics["similar_chunks"]
+                        print(f"Debug - Found {len(chunks)} chunks in similar_chunks")
+                    elif "chunks" in metrics and metrics["chunks"]:
+                        chunks = metrics["chunks"]
+                        print(f"Debug - Found {len(chunks)} chunks in chunks")
                     elif "chunks_retrieved" in metrics and isinstance(metrics["chunks_retrieved"], list):
                         chunks = metrics["chunks_retrieved"]
+                        print(f"Debug - Found {len(chunks)} chunks in chunks_retrieved")
                     
                     if chunks:
                         # Create table rows for each chunk
                         rows = []
                         for i, chunk in enumerate(chunks):
+                            # Debug chunk structure
+                            print(f"Debug - Chunk {i} type: {type(chunk)}")
+                            if isinstance(chunk, dict):
+                                print(f"Debug - Chunk {i} keys: {chunk.keys()}")
+                            
                             similarity = (f"{chunk.get('similarity', 0):.4f}" 
                                         if isinstance(chunk, dict) and 'similarity' in chunk 
                                         else "N/A")
@@ -732,6 +762,8 @@ class VisualizationDashboard:
                             # Get text content with proper handling
                             if isinstance(chunk, dict):
                                 text = chunk.get("text", "")
+                                if not text and "content" in chunk:
+                                    text = chunk.get("content", "")
                             elif isinstance(chunk, str):
                                 text = chunk[:100] + "..." if len(chunk) > 100 else chunk
                             else:
@@ -796,6 +828,11 @@ class VisualizationDashboard:
                         style={"padding": "20px"}
                     )
                 ]
+                
+                # Show debugging information to help troubleshoot
+                print(f"Debug - No chunks found for query: {query}")
+                print(f"Debug - Query results keys: {list(query_results.keys())}")
+                print(f"Debug - Results structure: {query_results}")
             
             # Generate answers display
             answers_display = []
@@ -973,6 +1010,12 @@ class VisualizationDashboard:
             return data.tolist()
         elif isinstance(data, np.number):
             return float(data)
+        elif str(type(data)) == "<class 'bson.objectid.ObjectId'>":
+            # Handle MongoDB ObjectId objects
+            return str(data)
+        elif hasattr(data, 'isoformat') and callable(data.isoformat):
+            # Handle datetime objects
+            return data.isoformat()
         else:
             return data
     
@@ -1084,7 +1127,7 @@ class VisualizationDashboard:
             max_time = max(time_values)
             normalized_times = [1 - (t / max_time) if max_time > 0 else 0 for t in time_values]
             for i, values in enumerate(data):
-                data[i].append(normalized_times[i])
+                values.append(normalized_times[i])
             metrics.append("normalized_time")
         
         # Set up the radar chart
@@ -1291,6 +1334,9 @@ class VisualizationDashboard:
             "Tokens": []
         })
         
+        # Get list of strategies
+        strategies = list(self.aggregated.keys())
+        
         for strategy, metrics in self.aggregated.items():
             # Get time metrics with fallbacks
             retrieval_time = metrics.get("retrieval_time", metrics.get("avg_retrieval_time", 0))
@@ -1338,6 +1384,28 @@ class VisualizationDashboard:
                     ),
                     row=1, col=1
                 )
+        
+        # Add total evaluation time annotation if available
+        has_total_time = False
+        for strategy in strategies:
+            if "total_evaluation_time" in self.aggregated[strategy]:
+                has_total_time = True
+                total_time = self.aggregated[strategy]["total_evaluation_time"]
+                break
+                
+        if has_total_time:
+            fig.add_annotation(
+                text=f"Total Evaluation Time: {total_time:.2f}s",
+                xref="paper", yref="paper",
+                x=0.25, y=0.95,  # Position in the first subplot
+                showarrow=False,
+                font=dict(size=12, color="#666666", family='Inter, sans-serif'),
+                bgcolor="rgba(255, 255, 255, 0.8)",
+                bordercolor="#dddddd",
+                borderwidth=1,
+                borderpad=4,
+                xanchor='center'
+            )
         
         # Add token bars
         token_df = df.drop_duplicates("Strategy")
@@ -1635,89 +1703,153 @@ class VisualizationDashboard:
         if not strategies or len(strategies) < 2:
             return "<p>At least two strategies are required for comparison.</p>"
         
-        # Find best strategy for each metric
-        best_by_metric = {
-            "context_precision": max(strategies, key=lambda s: self.aggregated[s]["context_precision"]),
-            "token_efficiency": max(strategies, key=lambda s: self.aggregated[s]["token_efficiency"]),
-            "latency": min(strategies, key=lambda s: self.aggregated[s]["latency"]) 
-        }
-        
-        # Calculate percentage differences between strategies
-        comparisons = []
-        for i, strategy1 in enumerate(strategies):
-            for strategy2 in strategies[i+1:]:
-                comparison = {
-                    "strategies": (strategy1, strategy2),
-                    "precision_diff": self._calculate_percentage_diff(
-                        self.aggregated[strategy1]["context_precision"], 
-                        self.aggregated[strategy2]["context_precision"]
-                    ),
-                    "efficiency_diff": self._calculate_percentage_diff(
-                        self.aggregated[strategy1]["token_efficiency"], 
-                        self.aggregated[strategy2]["token_efficiency"]
-                    ),
-                    "latency_diff": self._calculate_percentage_diff(
-                        self.aggregated[strategy1]["latency"], 
-                        self.aggregated[strategy2]["latency"],
-                        lower_is_better=True
-                    )
+        # Use the EvaluationSummarizer for more detailed insights
+        try:
+            # Convert our aggregated metrics format to the format expected by the summarizer
+            evaluation_results = {}
+            for strategy, metrics in self.aggregated.items():
+                evaluation_results[strategy] = {
+                    "precision": metrics.get("context_precision", 0),
+                    "recall": metrics.get("answer_relevance", 0),
+                    "f1_score": metrics.get("combined_score", 0),
+                    "latency": metrics.get("latency", 0),
+                    "token_efficiency": metrics.get("token_efficiency", 0)
                 }
-                comparisons.append(comparison)
-        
-        # Generate HTML content
-        html = "<div class='insights-summary'>"
-        html += "<h2>Key Insights</h2>"
-        
-        # Overall best strategy
-        html += f"<p>The <strong>{self.best_strategy}</strong> chunking strategy performed best overall based on combined metrics.</p>"
-        
-        # Best by each metric
-        html += "<h3>Best Performers by Metric</h3>"
-        html += "<ul>"
-        html += f"<li><strong>Context Precision:</strong> {best_by_metric['context_precision']} " + \
-                f"({self.aggregated[best_by_metric['context_precision']]['context_precision']:.2f})</li>"
-        html += f"<li><strong>Token Efficiency:</strong> {best_by_metric['token_efficiency']} " + \
-                f"({self.aggregated[best_by_metric['token_efficiency']]['token_efficiency']:.2f})</li>"
-        html += f"<li><strong>Latency:</strong> {best_by_metric['latency']} " + \
-                f"({self.aggregated[best_by_metric['latency']]['latency']:.2f}s)</li>"
-        html += "</ul>"
-        
-        # Strategy comparisons
-        html += "<h3>Strategy Comparisons</h3>"
-        for comp in comparisons:
-            s1, s2 = comp["strategies"]
-            html += f"<h4>{s1} vs {s2}</h4>"
+                
+                # Generate the comparative summary
+                summarizer = EvaluationSummarizer(self.config)
+                summary_text = summarizer.generate_comparative_summary(evaluation_results)
+                
+                # Generate HTML from the summary
+                html = "<div class='insights-summary'>"
+                html += "<h2>Performance Analysis</h2>"
+                html += f"<p>{summary_text}</p>"
+                
+                # Add best strategy highlight
+                html += f"<h3>Best Overall Strategy</h3>"
+                html += f"<p>The <strong>{self.best_strategy}</strong> chunking strategy performed best overall based on combined metrics.</p>"
+                
+                # Add performance improvements section
+                has_total_time = False
+                for strategy in strategies:
+                    if "total_evaluation_time" in self.aggregated[strategy]:
+                        has_total_time = True
+                        total_time = self.aggregated[strategy]["total_evaluation_time"]
+                        break
+                
+                if has_total_time:
+                    html += "<h3>Performance Optimizations</h3>"
+                    html += "<p>The following performance improvements were implemented:</p>"
+                    html += "<ul>"
+                    html += "<li><strong>Parallel Processing:</strong> Evaluation runs across multiple threads simultaneously.</li>"
+                    html += "<li><strong>Batch Processing:</strong> Queries are processed in batches for improved performance.</li>"
+                    html += "<li><strong>Model Caching:</strong> Results are cached to avoid redundant computations.</li>"
+                    html += f"<li><strong>Total Evaluation Time:</strong> {total_time:.2f} seconds.</li>"
+                    html += "</ul>"
+                
+                # Generate distribution information
+                distributions = summarizer.get_metric_distribution(evaluation_results)
+                
+                html += "<h3>Statistical Analysis</h3><ul>"
+                for metric, stats in distributions.items():
+                    html += f"<li><strong>{metric.capitalize()}</strong>: "
+                    html += f"Mean: {stats['mean']:.2f}, "
+                    html += f"Std Dev: {stats['std']:.2f}, "
+                    html += f"Min: {stats['min']:.2f}, "
+                    html += f"Max: {stats['max']:.2f}"
+                    html += "</li>"
+                html += "</ul>"
+                
+                html += "</div>"
+                return html
+                
+        except Exception as e:
+            # Fallback to original summary generation method if there's an error
+            print(f"Error using EvaluationSummarizer: {e}")
+            
+            # Original summary generation code
+            best_by_metric = {
+                "context_precision": max(strategies, key=lambda s: self.aggregated[s]["context_precision"]),
+                "token_efficiency": max(strategies, key=lambda s: self.aggregated[s]["token_efficiency"]),
+                "latency": min(strategies, key=lambda s: self.aggregated[s]["latency"]) 
+            }
+            
+            # Calculate percentage differences between strategies
+            comparisons = []
+            for i, strategy1 in enumerate(strategies):
+                for strategy2 in strategies[i+1:]:
+                    comparison = {
+                        "strategies": (strategy1, strategy2),
+                        "precision_diff": self._calculate_percentage_diff(
+                            self.aggregated[strategy1]["context_precision"], 
+                            self.aggregated[strategy2]["context_precision"]
+                        ),
+                        "efficiency_diff": self._calculate_percentage_diff(
+                            self.aggregated[strategy1]["token_efficiency"], 
+                            self.aggregated[strategy2]["token_efficiency"]
+                        ),
+                        "latency_diff": self._calculate_percentage_diff(
+                            self.aggregated[strategy1]["latency"], 
+                            self.aggregated[strategy2]["latency"],
+                            lower_is_better=True
+                        )
+                    }
+                    comparisons.append(comparison)
+            
+            # Generate HTML content
+            html = "<div class='insights-summary'>"
+            html += "<h2>Key Insights</h2>"
+            
+            # Overall best strategy
+            html += f"<p>The <strong>{self.best_strategy}</strong> chunking strategy performed best overall based on combined metrics.</p>"
+            
+            # Best by each metric
+            html += "<h3>Best Performers by Metric</h3>"
             html += "<ul>"
-            
-            # Precision comparison
-            better = s1 if comp["precision_diff"] > 0 else s2
-            html += f"<li><strong>Context Precision:</strong> {better} is {abs(comp['precision_diff']):.1f}% better</li>"
-            
-            # Efficiency comparison
-            better = s1 if comp["efficiency_diff"] > 0 else s2
-            html += f"<li><strong>Token Efficiency:</strong> {better} is {abs(comp['efficiency_diff']):.1f}% better</li>"
-            
-            # Latency comparison
-            better = s1 if comp["latency_diff"] < 0 else s2
-            html += f"<li><strong>Latency:</strong> {better} is {abs(comp['latency_diff']):.1f}% faster</li>"
-            
+            html += f"<li><strong>Context Precision:</strong> {best_by_metric['context_precision']} " + \
+                    f"({self.aggregated[best_by_metric['context_precision']]['context_precision']:.2f})</li>"
+            html += f"<li><strong>Token Efficiency:</strong> {best_by_metric['token_efficiency']} " + \
+                    f"({self.aggregated[best_by_metric['token_efficiency']]['token_efficiency']:.2f})</li>"
+            html += f"<li><strong>Latency:</strong> {best_by_metric['latency']} " + \
+                    f"({self.aggregated[best_by_metric['latency']]['latency']:.2f}s)</li>"
             html += "</ul>"
-        
-        # Query-specific insights
-        html += "<h3>Query-Specific Insights</h3>"
-        for query_id, query_data in self.results.items():
-            query_text = query_data["query_text"]
-            query_results = query_data["results"]
             
-            best_for_query = max(query_results.keys(), 
-                                key=lambda s: query_results[s]["combined_score"])
+            # Strategy comparisons
+            html += "<h3>Strategy Comparisons</h3>"
+            for comp in comparisons:
+                s1, s2 = comp["strategies"]
+                html += f"<h4>{s1} vs {s2}</h4>"
+                html += "<ul>"
+                
+                # Precision comparison
+                better = s1 if comp["precision_diff"] > 0 else s2
+                html += f"<li><strong>Context Precision:</strong> {better} is {abs(comp['precision_diff']):.1f}% better</li>"
+                
+                # Efficiency comparison
+                better = s1 if comp["efficiency_diff"] > 0 else s2
+                html += f"<li><strong>Token Efficiency:</strong> {better} is {abs(comp['efficiency_diff']):.1f}% better</li>"
+                
+                # Latency comparison
+                better = s1 if comp["latency_diff"] < 0 else s2
+                html += f"<li><strong>Latency:</strong> {better} is {abs(comp['latency_diff']):.1f}% faster</li>"
+                
+                html += "</ul>"
             
-            html += f"<p><strong>Query:</strong> {query_text}<br>"
-            html += f"<strong>Best Strategy:</strong> {best_for_query} "
-            html += f"(score: {query_results[best_for_query]['combined_score']:.2f})</p>"
-        
-        html += "</div>"
-        return html
+            # Query-specific insights
+            html += "<h3>Query-Specific Insights</h3>"
+            for query_id, query_data in self.results.items():
+                query_text = query_data["query_text"]
+                query_results = query_data["results"]
+                
+                best_for_query = max(query_results.keys(), 
+                                    key=lambda s: query_results[s]["combined_score"])
+                
+                html += f"<p><strong>Query:</strong> {query_text}<br>"
+                html += f"<strong>Best Strategy:</strong> {best_for_query} "
+                html += f"(score: {query_results[best_for_query]['combined_score']:.2f})</p>"
+            
+            html += "</div>"
+            return html
     
     def _calculate_percentage_diff(self, val1, val2, lower_is_better=False):
         """

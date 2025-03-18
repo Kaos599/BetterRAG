@@ -86,6 +86,7 @@ class ModelCachingWrapper:
         self.connector = model_connector
         self.embedding_cache = {}
         self.generation_cache = {}
+        self.evaluation_cache = {}
     
     def generate_embeddings(self, texts):
         """
@@ -153,3 +154,46 @@ class ModelCachingWrapper:
             # Fall back to generate_embeddings if get_embedding is not available
             embeddings = self.generate_embeddings([text])
             return embeddings[0] if embeddings else None 
+
+    def evaluate_batch(self, queries, contexts=None, max_workers=4):
+        """
+        Evaluate multiple queries in parallel with caching.
+        
+        Args:
+            queries: List of query texts to evaluate
+            contexts: Optional list of contexts for each query
+            max_workers: Maximum number of parallel workers
+            
+        Returns:
+            List of evaluation results
+        """
+        import concurrent.futures
+        
+        # Prepare the evaluation tasks
+        def process_query(idx):
+            query = queries[idx]
+            context = contexts[idx] if contexts else None
+            
+            # Check cache first
+            cache_key = f"{query}::{context}" if context else query
+            if cache_key in self.evaluation_cache:
+                return self.evaluation_cache[cache_key]
+            
+            # Generate the result
+            if context:
+                result = self.connector.generate_text(query, context)
+            else:
+                result = self.connector.generate_text(query, "")
+                
+            # Cache the result
+            self.evaluation_cache[cache_key] = result
+            return result
+        
+        # Run evaluations in parallel
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_idx = {executor.submit(process_query, i): i for i in range(len(queries))}
+            for future in concurrent.futures.as_completed(future_to_idx):
+                results.append(future.result())
+        
+        return results 

@@ -23,6 +23,12 @@ class ChunkingEvaluator:
         self.config = config
         self.top_k = config.get("top_k", 5)
         
+        # Performance optimization settings
+        self.parallel_evaluation = config.get('general', {}).get('parallel_evaluation', True)
+        self.max_workers = config.get('general', {}).get('max_workers', 4)
+        self.batch_size = config.get('general', {}).get('batch_size', 10)
+        self.enable_cache = config.get('general', {}).get('enable_model_caching', True)
+        
         # Store ground truth if available
         self.ground_truth = None
         ground_truth_path = config.get("ground_truth_path")
@@ -106,7 +112,10 @@ class ChunkingEvaluator:
             "combined_score": combined_score,
             "answer": answer,
             "chunks_retrieved": len(similar_chunks),
-            "context_tokens": context_tokens
+            "context_tokens": context_tokens,
+            "similar_chunks": similar_chunks,
+            "retrieval_time": retrieval_time,
+            "generation_time": generation_time
         }
         
         return result
@@ -152,12 +161,23 @@ class ChunkingEvaluator:
         with open(test_queries_file, 'r') as f:
             queries = json.load(f)
         
+        print(f"Starting chunking strategy evaluation with {len(queries)} queries...")
+        total_start_time = time.time()
+        
         # Evaluate all queries against all strategies
         strategies = self.db.get_all_strategies()
         evaluation_results = self.evaluate_all_queries(queries, strategies)
         
         # Calculate aggregate metrics
         aggregated_metrics = self.calculate_aggregate_metrics(evaluation_results)
+        
+        # Add overall timing information
+        total_evaluation_time = time.time() - total_start_time
+        print(f"Complete evaluation finished in {total_evaluation_time:.2f} seconds")
+        
+        # Store timing in aggregated metrics for dashboard display
+        for strategy in aggregated_metrics:
+            aggregated_metrics[strategy]["total_evaluation_time"] = total_evaluation_time
         
         # Determine the best strategy
         best_strategy = self.get_best_strategy(aggregated_metrics)
@@ -178,6 +198,9 @@ class ChunkingEvaluator:
         """
         results = {}
         
+        print(f"Starting evaluation of {len(queries)} queries against {len(strategies) if strategies else 'all'} strategies...")
+        start_time = time.time()
+        
         # Get all strategies from the database if none specified
         if not strategies:
             strategies = self.db.get_all_strategies()
@@ -193,15 +216,111 @@ class ChunkingEvaluator:
                 "results": {}
             }
         
-        # Use parallel processing if enabled in config
-        use_parallel = self.config.get('general', {}).get('parallel_evaluation', False)
+        # Check if our model supports batch evaluation (ModelCachingWrapper)
+        supports_batch = hasattr(self.model, 'evaluate_batch')
         
-        if use_parallel:
+        # Use optimized parallel processing if enabled and supported
+        if self.parallel_evaluation and supports_batch:
+            print(f"Using optimized batch processing with {self.max_workers} workers")
+            
+            # Process each strategy separately, but batch the queries
+            for strategy in strategies:
+                print(f"Evaluating strategy: {strategy}")
+                strategy_start = time.time()
+                
+                # Prepare all queries for this strategy
+                all_query_texts = [q["query"] for q in queries]
+                
+                # Process in batches to avoid memory issues
+                for batch_start in range(0, len(all_query_texts), self.batch_size):
+                    batch_end = min(batch_start + self.batch_size, len(all_query_texts))
+                    batch_queries = all_query_texts[batch_start:batch_end]
+                    
+                    batch_process_start = time.time()
+                    print(f"  Processing batch {batch_start//self.batch_size + 1}/{(len(all_query_texts) + self.batch_size - 1)//self.batch_size} (size: {len(batch_queries)})")
+                    
+                    # Get query embeddings for the batch
+                    query_embeddings = self.model.generate_embeddings(batch_queries)
+                    
+                    # Find relevant chunks for each query
+                    batch_contexts = []
+                    retrieval_start = time.time()
+                    for idx, query_embedding in enumerate(query_embeddings):
+                        similar_chunks = self.db.find_similar_chunks(
+                            query_embedding=query_embedding,
+                            strategy=strategy,
+                            top_k=self.top_k
+                        )
+                        # Prepare context from retrieved chunks
+                        context = "\n\n".join([chunk.get("text", "") for chunk in similar_chunks])
+                        batch_contexts.append(context)
+                    retrieval_time = time.time() - retrieval_start
+                    
+                    # Now use batch evaluation
+                    generation_start = time.time()
+                    batch_answers = self.model.evaluate_batch(
+                        queries=batch_queries,
+                        contexts=batch_contexts,
+                        max_workers=self.max_workers
+                    )
+                    generation_time = time.time() - generation_start
+                    
+                    # Process the results
+                    for idx, (query_text, context, answer) in enumerate(zip(batch_queries, batch_contexts, batch_answers)):
+                        query_idx = batch_start + idx
+                        query_id = f"query_{query_idx}"
+                        
+                        # Calculate metrics for this query
+                        similar_chunks = self.db.find_similar_chunks(
+                            query_embedding=query_embeddings[idx],
+                            strategy=strategy,
+                            top_k=self.top_k
+                        )
+                        
+                        context_precision = self._calculate_context_precision(similar_chunks, query_text)
+                        token_efficiency = self._calculate_token_efficiency(similar_chunks, query_text)
+                        
+                        # Calculate answer relevance if ground truth is available
+                        answer_relevance = 0
+                        if self.ground_truth and query_text in self.ground_truth:
+                            ground_truth_answer = self.ground_truth[query_text]
+                            answer_relevance = self._calculate_answer_relevance(answer, ground_truth_answer)
+                        
+                        # Calculate combined score
+                        combined_score = (0.4 * context_precision) + (0.3 * token_efficiency) + (0.3 * answer_relevance)
+                        
+                        # Store results with timing information
+                        results[query_id]["results"][strategy] = {
+                            "context_precision": context_precision,
+                            "token_efficiency": token_efficiency,
+                            "answer_relevance": answer_relevance,
+                            "retrieval_time": retrieval_time / len(batch_queries),  # Average per query
+                            "generation_time": generation_time / len(batch_queries),  # Average per query
+                            "latency": (retrieval_time + generation_time) / len(batch_queries),  # Average per query
+                            "combined_score": combined_score,
+                            "answer": answer,
+                            "chunks_retrieved": len(similar_chunks),
+                            "context_tokens": self._estimate_tokens(context),
+                            "similar_chunks": similar_chunks,
+                            "retrieval_time": retrieval_time,
+                            "generation_time": generation_time
+                        }
+                    
+                    batch_time = time.time() - batch_process_start
+                    print(f"  Batch processed in {batch_time:.2f}s (retrieval: {retrieval_time:.2f}s, generation: {generation_time:.2f}s)")
+                
+                strategy_time = time.time() - strategy_start
+                print(f"Strategy {strategy} evaluated in {strategy_time:.2f} seconds")
+                
+        # Standard parallel processing
+        elif self.parallel_evaluation:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             import multiprocessing
             
             # Determine number of workers - default to CPU count
-            max_workers = self.config.get('general', {}).get('max_workers', multiprocessing.cpu_count())
+            max_workers = self.max_workers
+            
+            print(f"Using thread pool with {max_workers} workers")
             
             # Process each strategy-query combination in parallel
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -211,20 +330,38 @@ class ChunkingEvaluator:
                         query_id = f"query_{i}"
                         query_text = query_dict["query"]
                         future = executor.submit(self.evaluate_query, query_text, strategy)
-                        futures[(strategy, query_id)] = future
+                        futures[future] = (strategy, query_id)  # Use future as key instead of tuple
                 
                 # Collect results as they complete
-                for (strategy, query_id), future in as_completed(futures):
-                    results[query_id]["results"][strategy] = future.result()
+                completed = 0
+                total = len(futures)
+                for future in as_completed(futures):
+                    try:
+                        strategy, query_id = futures[future]
+                        result = future.result()
+                        results[query_id]["results"][strategy] = result
+                        
+                        # Track timing for progress reporting
+                        completed += 1
+                        if completed % 10 == 0 or completed == total:
+                            progress_pct = completed/total*100
+                            print(f"Progress: {completed}/{total} evaluations completed ({progress_pct:.1f}%)")
+                    except Exception as e:
+                        print(f"Error processing future: {e}")
+                        # Continue with other futures instead of breaking
         else:
             # Sequential processing
+            print("Using sequential processing")
             for i, query_dict in enumerate(queries):
                 query_id = f"query_{i}"
                 query_text = query_dict["query"]
                 
                 for strategy in strategies:
+                    print(f"Evaluating query {i+1}/{len(queries)} with strategy {strategy}")
                     results[query_id]["results"][strategy] = self.evaluate_query(query_text, strategy)
         
+        total_time = time.time() - start_time
+        print(f"Evaluation completed in {total_time:.2f} seconds")
         return results
     
     def calculate_aggregate_metrics(self, evaluation_results: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:

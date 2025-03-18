@@ -9,6 +9,7 @@ general:
   test_queries_file: "./data/test_queries.json"  # File containing test queries
   parallel_evaluation: true  # Enable parallel processing for evaluation
   max_workers: 4  # Maximum number of worker threads for parallel processing
+  batch_size: 10   # Number of queries to process in each batch
   enable_model_caching: true  # Enable caching of model calls
 
 # Model configuration

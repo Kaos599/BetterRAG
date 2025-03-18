@@ -1,4 +1,5 @@
 from app.evaluation.metrics import ChunkingEvaluator
+from app.evaluation.summary import EvaluationSummarizer
 
 def get_evaluator(model_connector, db_connector, config):
     """
@@ -12,4 +13,6 @@ def get_evaluator(model_connector, db_connector, config):
     Returns:
         ChunkingEvaluator instance
     """
-    return ChunkingEvaluator(model_connector, db_connector, config) 
+    return ChunkingEvaluator(model_connector, db_connector, config)
+
+__all__ = ['EvaluationSummarizer'] 
