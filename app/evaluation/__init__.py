@@ -1,5 +1,8 @@
 from app.evaluation.metrics import ChunkingEvaluator
 from app.evaluation.summary import EvaluationSummarizer
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_evaluator(model_connector, db_connector, config):
     """
@@ -13,6 +16,7 @@ def get_evaluator(model_connector, db_connector, config):
     Returns:
         ChunkingEvaluator instance
     """
+    logger.info("Initializing chunking evaluator")
     return ChunkingEvaluator(model_connector, db_connector, config)
 
 __all__ = ['EvaluationSummarizer'] 

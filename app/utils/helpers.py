@@ -4,25 +4,31 @@ from typing import List, Dict, Any, Tuple
 import json
 
 
-def load_document_from_file(file_path: str) -> Tuple[str, str]:
+def load_document_from_file(file_path: str) -> str:
     """
-    Load document content from a file.
+    Load document text from a file.
     
     Args:
-        file_path: Path to the document file
+        file_path: Path to the file
         
     Returns:
-        Tuple of (document_id, document_text)
+        str: Document text
     """
-    document_id = os.path.basename(file_path)
-    
     try:
+        # Try UTF-8 first
         with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return document_id, content
+            return f.read()
+    except UnicodeDecodeError:
+        try:
+            # Fall back to latin-1 (which will always work but might not be correct)
+            with open(file_path, 'r', encoding='latin-1') as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error loading document from {file_path}: {e}")
+            return None
     except Exception as e:
         print(f"Error loading document from {file_path}: {e}")
-        return document_id, ""
+        return None
 
 
 def find_documents(source_path: str, file_types: List[str] = None) -> List[str]:

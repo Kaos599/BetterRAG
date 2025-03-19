@@ -11,6 +11,7 @@ general:
   max_workers: 4  # Maximum number of worker threads for parallel processing
   batch_size: 10   # Number of queries to process in each batch
   enable_model_caching: true  # Enable caching of model calls
+  enable_parameter_optimization: false  # Enable integrated parameter optimization with main workflow
 
 # Model configuration
 model:
@@ -60,6 +61,25 @@ chunking_strategies:
     min_chunk_size: 100
     max_chunk_size: 600
     similarity_threshold: 0.7
+
+# Parameter optimization settings
+parameter_optimization:
+  # These settings are used when parameter optimization is enabled
+  
+  # Chunk sizes to test
+  chunk_sizes: [256, 512, 768, 1024]
+  
+  # Overlap percentages to test (as decimals)
+  overlap_percentages: [0.12, 0.15, 0.18, 0.20, 0.25, 0.30]
+  
+  # Semantic methods to test
+  semantic_methods: ["standard", "interquartile", "percentile"]
+  
+  # Similarity thresholds to test
+  similarity_thresholds: [0.65, 0.75, 0.85, 0.95]
+  
+  # Whether to include the best parameters in the main dashboard
+  include_in_main_dashboard: true
 
 # Evaluation configuration
 evaluation:

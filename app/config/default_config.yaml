@@ -1,0 +1,76 @@
+general:
+  data_source: "./data"
+  output_directory: "./output"
+  db_reset: true
+  enable_parameter_optimization: false
+  enable_model_caching: true
+  test_queries_file: "./test_queries.json"
+
+parameter_optimization:
+  # Maximum configurations to evaluate per strategy type (fixed_size, recursive, semantic)
+  # Set to null to use all configurations (can generate over 200 combinations)
+  max_configs_per_strategy: 10
+  
+  # Parameter ranges for optimization
+  chunk_sizes: [256, 512, 768, 1024]
+  overlap_percentages: [0.15, 0.20, 0.25]
+  similarity_thresholds: [0.75, 0.85]
+  semantic_methods: ["standard", "interquartile"]
+  min_chunk_sizes: [100, 150]
+  max_chunk_sizes: [800, 1000]
+
+chunkers:
+  fixed_size:
+    enabled: true
+    chunk_size: 512  # Characters
+    chunk_overlap: 100  # Characters
+  
+  recursive:
+    enabled: true
+    chunk_size: 512  # Characters
+    chunk_overlap: 100  # Characters
+    separators: ["\n\n", "\n", ". ", " ", ""]
+  
+  semantic:
+    enabled: true
+    similarity_threshold: 0.85
+    min_chunk_size: 100  # Characters
+    max_chunk_size: 1000  # Characters
+    semantic_method: "standard"  # Options: standard, interquartile, percentile
+
+database:
+  type: "mongodb"
+  # MongoDB specific settings
+  connection_string: "mongodb://localhost:27017/"
+  database_name: "rag_evaluation"
+  collection_name: "document_chunks"
+  # For file-based vector stores like Chroma
+  persist_directory: "./chroma_db"
+
+model:
+  provider: "azure_openai"  # Options: azure_openai, gemini
+  
+  azure_openai:
+    api_key: "dummy_key_for_testing_only"
+    api_base: "https://example.openai.azure.com/"
+    api_version: "2023-07-01-preview"
+    embedding_deployment: "text-embedding-ada-002"
+    completion_deployment: "gpt-4"
+    max_tokens: 600
+
+  gemini:
+    api_key: "dummy_key_for_testing_only"
+    embedding_model: "models/embedding-001"
+    completion_model: "gemini-pro"
+    max_tokens: 600
+
+evaluation:
+  queries:
+    - "What is the main topic of the document?"
+    - "Summarize the key points in the document."
+    - "What are the main conclusions in the document?"
+  metrics:
+    - "relevance"
+    - "completeness"
+    - "groundedness"
+  n_chunks: 3  # Number of chunks to retrieve for each query 

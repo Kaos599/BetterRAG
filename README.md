@@ -74,6 +74,26 @@ Text chunking can make or break your RAG system's performance. Different strateg
       </ul>
     </td>
   </tr>
+  <tr>
+    <td>
+      <h3>🔬 Parameter Optimization</h3>
+      <ul>
+        <li>Test various overlap percentages (12%, 15%, 18%, 20%, 25%, 30%)</li>
+        <li>Compare multiple chunk sizes (256, 512, 768, 1024)</li>
+        <li>Evaluate different semantic methods (standard, interquartile, percentile)</li>
+        <li>Find optimal parameter settings automatically</li>
+      </ul>
+    </td>
+    <td>
+      <h3>📊 Advanced Visualization</h3>
+      <ul>
+        <li>Parameter impact charts</li>
+        <li>Heatmaps of parameter interactions</li>
+        <li>Parallel coordinates for multi-parameter analysis</li>
+        <li>Optimal parameter recommendations</li>
+      </ul>
+    </td>
+  </tr>
 </table>
 
 ## 🚀 Quick Start
@@ -162,7 +182,73 @@ python -m app.main --reset-db
 
 # Use custom config file
 python -m app.main --config my_custom_config.yaml
+
+# Run parameter optimization with varied configurations
+python -m app.main --parameter-optimization
+
+# Run the parameter optimization dashboard
+python -m app.main --optimization-dashboard
 ```
+
+## 🔬 Parameter Optimization
+
+BetterRAG supports automated parameter optimization to find the best chunking configurations for your specific documents and use case.
+
+### Configuration
+
+To enable parameter optimization, add the following to your `config.yaml`:
+
+```yaml
+general:
+  enable_parameter_optimization: true
+  # ... other settings
+
+parameter_optimization:
+  # Maximum configurations to evaluate per strategy type (fixed_size, recursive, semantic)
+  # Set to null to use all configurations (can generate over 200 combinations total)
+  max_configs_per_strategy: 10
+  
+  # Parameter ranges for optimization
+  chunk_sizes: [256, 512, 768, 1024]
+  overlap_percentages: [0.15, 0.20, 0.25]
+  similarity_thresholds: [0.75, 0.85]
+  semantic_methods: ["standard", "interquartile"]
+  min_chunk_sizes: [100, 150]
+  max_chunk_sizes: [800, 1000]
+```
+
+### Limiting Configuration Count
+
+By default, parameter optimization generates a full cartesian product of all parameter combinations, which can result in over 200 different chunking configurations. To reduce the number of configurations that need to be evaluated:
+
+1. Use the `max_configs_per_strategy` setting to limit configurations per chunking method
+2. Reduce the number of values in each parameter list
+3. Use the parameter optimization dashboard to visualize results and identify promising parameter regions
+
+### Running Parameter Optimization
+
+You can run parameter optimization in two ways:
+
+1. As part of the main workflow:
+   ```
+   python -m app.main --config config.yaml
+   ```
+
+2. Standalone:
+   ```
+   python -m app.main --config config.yaml --parameter-optimization
+   ```
+
+3. View results in the dashboard:
+   ```
+   python -m app.main --config config.yaml --optimization-dashboard
+   ```
+
+### Output
+
+Parameter optimization results will be saved to the specified output directory and can be visualized through the parameter optimization dashboard.
+
+The system will identify and report the best chunking configuration based on your evaluation metrics.
 
 ## 🛠️ Extending BetterRAG
 

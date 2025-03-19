@@ -7,14 +7,17 @@ import os
 import sys
 import logging
 from typing import Dict, List, Any, Tuple
+from tqdm import tqdm
 
 from app.utils.config import get_config
 from app.utils.helpers import find_documents, load_document_from_file, create_directory_if_not_exists
-from app.chunkers import get_chunker
+from app.chunkers import get_chunker, get_all_enabled_chunkers
+from app.chunkers.parameter_optimizer import ChunkingParameterOptimizer
 from app.models import get_model_connector
 from app.db import get_db_connector
 from app.evaluation import get_evaluator
-from app.visualization import get_dashboard
+from app.visualization import get_dashboard, get_parameter_dashboard
+from app.visualization.enhanced_dashboard import ParameterOptimizationDashboard
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -26,6 +29,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 # Suppress OpenAI library logs
 logging.getLogger("openai").setLevel(logging.WARNING)
+# Suppress SentenceTransformer logs except for errors
+logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 
 def parse_arguments() -> argparse.Namespace:
     """
@@ -45,187 +50,264 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--reset-db", action="store_true",
                        help="Reset the database before processing")
     
+    parser.add_argument("--parameter-optimization", action="store_true",
+                       help="Run parameter optimization with varied chunking configurations")
+    
+    parser.add_argument("--optimization-dashboard", action="store_true",
+                       help="Run the parameter optimization dashboard")
+    
+    parser.add_argument("--skip-parameter-optimization", action="store_true",
+                       help="Skip parameter optimization even if enabled in config")
+    
     return parser.parse_args()
 
-def process_documents(config: Dict[str, Any], model_connector: Any, db_connector: Any, chunkers: Dict[str, Any]) -> Dict[str, List[str]]:
+def process_with_parameter_optimization(config: Dict[str, Any], model_connector, db_connector) -> Tuple[Dict, Dict, str]:
     """
-    Process documents using each chunking strategy.
+    Process documents and evaluate with automated parameter optimization.
     
     Args:
-        config: Application configuration.
-        model_connector: Model connector instance.
-        db_connector: Database connector instance.
-        chunkers: Dictionary of chunker instances.
+        config: Configuration dictionary
+        model_connector: Model connector instance
+        db_connector: Database connector instance
         
     Returns:
-        Dictionary mapping strategy names to lists of chunk IDs.
+        Tuple containing evaluation results, aggregated metrics, and best strategy
     """
-    logger.info("Processing documents...")
+    logger.info("Starting parameter optimization...")
     
-    # Find documents
-    source_path = config['general']['data_source']
-    file_types = config.get('document', {}).get('file_types', [".txt"])
-    file_paths = find_documents(source_path, file_types)
+    # Initialize parameter optimizer
+    parameter_optimizer = ChunkingParameterOptimizer(config)
     
-    if not file_paths:
-        logger.error(f"No documents found in {source_path}")
-        sys.exit(1)
+    # Get all chunker configurations
+    chunker_configs = parameter_optimizer.generate_chunker_configs()
+    logger.info(f"Generated {len(chunker_configs)} chunking configurations for evaluation")
     
-    # Process documents with each chunking strategy
-    chunk_ids_by_strategy = {}
+    # Get all chunker instances
+    chunkers = parameter_optimizer.get_all_chunkers()
     
-    for strategy_name, chunker in chunkers.items():
-        logger.info(f"Processing documents with {strategy_name} strategy...")
-        chunk_ids = []
+    # Process documents with all chunkers
+    documents_path = config["general"]["data_source"]
+    logger.info(f"Processing documents from {documents_path}")
+    
+    # Find all documents
+    document_files = find_documents(documents_path)
+    
+    if not document_files:
+        logger.error(f"No documents found in {documents_path}")
+        return {}, {}, ""
+    
+    logger.info(f"Found {len(document_files)} documents")
+    
+    # Process documents for each chunker
+    for i, (config_name, chunker) in enumerate(tqdm(chunkers, desc="Processing chunkers", unit="chunker")):
+        logger.info(f"[{i+1}/{len(chunkers)}] Processing with chunker: {config_name}")
         
-        for file_path in file_paths:
-            doc_id, content = load_document_from_file(file_path)
-            chunks = chunker.chunk_text(content)
-            
-            # Generate embeddings and store in database
-            print(f"Generating embeddings for {len(chunks)} chunks using {strategy_name} strategy...")
-            chunk_count = 0
-            total_chunks = len(chunks)
-            
-            for chunk in chunks:
-                chunk_count += 1
-                if chunk_count % 5 == 0 or chunk_count == total_chunks:
-                    print(f"Progress: {chunk_count}/{total_chunks} chunks processed ({(chunk_count/total_chunks)*100:.1f}%)")
+        # Process all documents with this chunker
+        for j, doc_path in enumerate(document_files):
+            doc_name = os.path.basename(doc_path)
+            logger.info(f"  Processing document {j+1}/{len(document_files)}: {doc_name}")
+            document_text = load_document_from_file(doc_path)
+            if document_text:
+                document_id = os.path.basename(doc_path)
+                chunks = chunker.process_document(document_text, document_id)
                 
-                embedding = model_connector.get_embedding(chunk)
-                chunk_id = db_connector.insert_chunk(
-                    chunk, embedding, doc_id, strategy_name
-                )
-                chunk_ids.append(chunk_id)
-            
-            print(f"Completed processing {total_chunks} chunks for document {doc_id}")
+                # Store chunks in database using the correct method
+                for chunk in tqdm(chunks, desc=f"Storing chunks for {doc_name}", leave=False):
+                    # Handle both object chunks and dictionary chunks
+                    if isinstance(chunk, dict):
+                        chunk_text = chunk.get("text", "")
+                        chunk_doc_id = chunk.get("document_id", document_id)
+                    else:
+                        chunk_text = chunk.text
+                        chunk_doc_id = chunk.document_id
+                        
+                    db_connector.insert_chunk(
+                        text=chunk_text,
+                        embedding=model_connector.get_embedding(chunk_text),
+                        document_id=chunk_doc_id,
+                        strategy=config_name
+                    )
+                
+                logger.info(f"    Generated {len(chunks)} chunks")
         
-        chunk_ids_by_strategy[strategy_name] = chunk_ids
+        # Log progress percentage
+        progress = (i + 1) / len(chunkers) * 100
+        logger.info(f"Parameter optimization progress: {progress:.1f}% ({i+1}/{len(chunkers)} chunkers processed)")
     
-    return chunk_ids_by_strategy
-
-def evaluate_strategies(config: Dict[str, Any], model_connector: Any, db_connector: Any) -> Tuple[Dict, Dict, str]:
-    """
-    Evaluate chunking strategies and return results.
-    
-    Args:
-        config: Application configuration.
-        model_connector: Model connector instance.
-        db_connector: Database connector instance.
-    
-    Returns:
-        Tuple containing:
-        - Evaluation results dictionary
-        - Aggregated metrics dictionary
-        - Name of the best performing strategy
-    """
-    logger.info("Evaluating chunking strategies...")
-    
-    # Create evaluator
+    # Initialize evaluator
+    logger.info("Parameter optimization complete. Starting evaluation...")
     evaluator = get_evaluator(model_connector, db_connector, config)
     
-    # Load test queries
-    test_queries_file = config['general']['test_queries_file']
-    if not os.path.exists(test_queries_file):
-        logger.error(f"Test queries file not found: {test_queries_file}")
-        sys.exit(1)
-    
-    # Run evaluation
+    # Evaluate all strategies
+    logger.info("Evaluating all parameter variations...")
     evaluation_results, aggregated_metrics, best_strategy = evaluator.evaluate_strategies()
+    
+    # Save and visualize parameter optimization results
+    output_dir = config["general"]["output_directory"]
+    create_directory_if_not_exists(output_dir)
+    
+    # Use parameter optimization dashboard for visualization
+    param_dashboard = get_parameter_dashboard(config)
+    
+    # Save the parameter optimization results
+    param_dashboard.save_results(evaluation_results, aggregated_metrics, best_strategy)
     
     logger.info(f"Evaluation complete. Best strategy: {best_strategy}")
     
     return evaluation_results, aggregated_metrics, best_strategy
 
-def run_visualization(config: Dict[str, Any], evaluation_results: Dict, 
-                     aggregated_metrics: Dict, best_strategy: str) -> None:
+def main() -> None:
     """
-    Generate visualizations and run the dashboard.
-    
-    Args:
-        config: Application configuration.
-        evaluation_results: Evaluation results dictionary.
-        aggregated_metrics: Aggregated metrics dictionary.
-        best_strategy: Name of the best performing strategy.
+    Main entry point for the application.
     """
-    logger.info("Generating visualizations...")
+    # Parse arguments
+    args = parse_arguments()
     
-    # Create output directory
-    output_dir = config['general']['output_directory']
-    create_directory_if_not_exists(output_dir)
+    # Load configuration
+    config = get_config(args.config)
     
-    # Get dashboard
-    dashboard = get_dashboard(config)
+    # If reset_db is specified in arguments, override configuration
+    if args.reset_db:
+        config["general"]["db_reset"] = True
     
-    # Save results
-    dashboard.save_results(evaluation_results, aggregated_metrics, best_strategy)
+    # Run visualization dashboard only
+    if args.dashboard_only:
+        logger.info("Running visualization dashboard only...")
+        dashboard = get_dashboard(config)
+        dashboard.run_dashboard()
+        return
     
-    # Skip chart generation for now to avoid visualization errors
-    # dashboard.generate_matplotlib_charts()
-    # dashboard.generate_plotly_charts()
+    # Run parameter optimization dashboard only
+    if args.optimization_dashboard:
+        logger.info("Running parameter optimization dashboard only...")
+        dashboard = get_parameter_dashboard(config)
+        dashboard.run_dashboard()
+        return
     
-    # Run dashboard
-    logger.info(f"Starting dashboard on port {config['visualization']['dashboard']['port']}...")
-    try:
-        dashboard.run_dashboard(evaluation_results, aggregated_metrics, best_strategy)
-    except Exception as e:
-        logger.error(f"Error running dashboard: {e}")
-        logger.info("Skipping dashboard visualization. Results are saved to the output directory.")
-
-def main():
-    """Main entry point for the application."""
-    try:
-        # Parse command-line arguments
-        args = parse_arguments()
-        
-        # Set custom config path if provided
-        if args.config != "config.yaml":
-            os.environ["BETTERRAG_CONFIG_PATH"] = args.config
-        
-        # Load configuration
-        config = get_config()
-        
-        # Check if we're running in dashboard-only mode
-        if args.dashboard_only:
-            # TODO: Load previous results and run dashboard
-            logger.info("Running in dashboard-only mode...")
-            # This would need to load previously saved results
-            return
-        
-        # Get model connector
+    # Backward compatibility: Run parameter optimization only
+    if args.parameter_optimization:
+        logger.info("Running parameter optimization only mode...")
+        # Create model and database connectors
         model_connector = get_model_connector(config)
+        db_connector = get_db_connector(config["database"])
         
-        # Get database connector
-        db_connector = get_db_connector(config)
-        
-        # Reset database if requested
-        if args.reset_db or config['general'].get('db_reset', False):
+        # Reset database if configured
+        if config["general"].get("db_reset", False):
             logger.info("Resetting database...")
             db_connector.reset_database()
+            
+        process_with_parameter_optimization(config, model_connector, db_connector)
+        return
         
-        # Get chunkers
-        chunkers = {}
-        for strategy_name, strategy_config in config['chunking_strategies'].items():
-            if strategy_config.get('enabled', False):
-                chunkers[strategy_name] = get_chunker(strategy_name, strategy_config)
+    # Standard run - process documents and evaluate strategies
+    logger.info("Starting BetterRAG evaluation...")
+    
+    # Create model and database connectors
+    model_connector = get_model_connector(config)
+    db_connector = get_db_connector(config["database"])
+    
+    # Reset database if configured
+    if config["general"].get("db_reset", False):
+        logger.info("Resetting database...")
+        db_connector.reset_database()
+    
+    # Check if parameter optimization is enabled in config
+    enable_parameter_optimization = config.get("general", {}).get("enable_parameter_optimization", False)
+    
+    # Skip parameter optimization if explicitly requested
+    if args.skip_parameter_optimization:
+        enable_parameter_optimization = False
+    
+    # Parameter optimization is now part of the main workflow if enabled
+    param_opt_results = None
+    if enable_parameter_optimization:
+        logger.info("Running parameter optimization as part of main workflow...")
+        param_opt_results = process_with_parameter_optimization(config, model_connector, db_connector)
+    
+    # Continue with standard chunking evaluation
+    logger.info("Running standard chunking evaluation...")
+    
+    # Get all enabled chunkers from config
+    chunkers = get_all_enabled_chunkers(config)
+    logger.info(f"Enabled chunking strategies: {len(chunkers)}")
+    
+    # Process documents
+    documents_path = config["general"]["data_source"]
+    logger.info(f"Processing documents from {documents_path}")
+    
+    # Find all documents
+    document_files = find_documents(documents_path)
+    
+    if not document_files:
+        logger.error(f"No documents found in {documents_path}")
+        return
+    
+    logger.info(f"Found {len(document_files)} documents")
+    
+    # Process all documents for each chunker
+    for chunker in chunkers:
+        logger.info(f"Processing with chunker: {chunker.name}")
         
-        # Process documents
-        process_documents(config, model_connector, db_connector, chunkers)
-        
-        # Evaluate strategies
-        evaluation_results, aggregated_metrics, best_strategy = evaluate_strategies(
-            config, model_connector, db_connector
-        )
-        
-        # Run visualization
-        run_visualization(config, evaluation_results, aggregated_metrics, best_strategy)
-        
-    except KeyboardInterrupt:
-        logger.info("Application interrupted by user")
-        sys.exit(0)
-    except Exception as e:
-        logger.exception(f"An error occurred: {str(e)}")
-        sys.exit(1)
+        for doc_path in document_files:
+            document_text = load_document_from_file(doc_path)
+            if document_text:
+                document_id = os.path.basename(doc_path)
+                chunks = chunker.process_document(document_text, document_id)
+                
+                # Store chunks in database
+                for chunk in chunks:
+                    # Handle both object chunks and dictionary chunks
+                    if isinstance(chunk, dict):
+                        chunk_text = chunk.get("text", "")
+                        chunk_doc_id = chunk.get("document_id", document_id)
+                    else:
+                        chunk_text = chunk.text
+                        chunk_doc_id = chunk.document_id
+                        
+                    db_connector.insert_chunk(
+                        text=chunk_text,
+                        embedding=model_connector.get_embedding(chunk_text),
+                        document_id=chunk_doc_id,
+                        strategy=chunker.name
+                    )
+                
+                logger.info(f"  Generated {len(chunks)} chunks for {document_id}")
+    
+    # Evaluate strategies
+    logger.info("Evaluating chunking strategies...")
+    evaluator = get_evaluator(model_connector, db_connector, config)
+    evaluation_results, aggregated_metrics, best_strategy = evaluator.evaluate_strategies()
+    
+    # Save results
+    output_dir = config["general"]["output_directory"]
+    create_directory_if_not_exists(output_dir)
+    
+    # Get visualization dashboard
+    dashboard = get_dashboard(config)
+    
+    # Save and visualize results
+    dashboard.save_results(evaluation_results, aggregated_metrics, best_strategy)
+    dashboard.generate_matplotlib_charts()
+    dashboard.generate_plotly_charts()
+    
+    # If parameter optimization was run, also provide its results to the dashboard
+    if param_opt_results:
+        param_eval_results, param_aggregated, param_best = param_opt_results
+        dashboard.add_parameter_optimization_results(param_eval_results, param_aggregated, param_best)
+    
+    # Generate insights
+    dashboard.generate_insights_summary()
+    
+    # Generate final report
+    dashboard.generate_final_report()
+    
+    logger.info(f"Evaluation completed. Best strategy: {best_strategy}")
+    logger.info(f"Results saved to {output_dir}")
+    
+    # Run the dashboard
+    if config.get("visualization", {}).get("run_dashboard", False):
+        logger.info("Starting visualization dashboard...")
+        dashboard.run_dashboard()
 
 if __name__ == "__main__":
     main() 

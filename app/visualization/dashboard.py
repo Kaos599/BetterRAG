@@ -1877,3 +1877,305 @@ class VisualizationDashboard:
             diff = -diff
             
         return diff 
+
+    def add_parameter_optimization_results(self, evaluation_results, aggregated_metrics, best_strategy):
+        """
+        Add parameter optimization results to the dashboard.
+        
+        Args:
+            evaluation_results: Results from parameter optimization evaluation
+            aggregated_metrics: Aggregated metrics from parameter optimization
+            best_strategy: Best strategy found by parameter optimization
+        """
+        # Store parameter optimization results
+        self.param_opt_results = evaluation_results
+        self.param_opt_aggregated = aggregated_metrics
+        self.param_opt_best = best_strategy
+        
+        # Save parameter optimization results separately
+        param_results_path = os.path.join(self.output_dir, "parameter_optimization_results.json")
+        
+        # Create a combined results file for parameter optimization
+        param_combined = {
+            "evaluation_results": self._clean_for_json(evaluation_results),
+            "aggregated_metrics": self._clean_for_json(aggregated_metrics),
+            "best_strategy": best_strategy
+        }
+        
+        # Save to file
+        with open(param_results_path, 'w') as f:
+            json.dump(param_combined, f, indent=2)
+            
+        # Generate additional visualization comparing standard and optimized approaches
+        self._generate_comparison_chart(aggregated_metrics, best_strategy)
+    
+    def _generate_comparison_chart(self, param_aggregated, param_best):
+        """
+        Generate a chart comparing standard strategies with parameter-optimized strategies.
+        
+        Args:
+            param_aggregated: Aggregated metrics from parameter optimization
+            param_best: Best strategy found by parameter optimization
+        """
+        if not self.aggregated or not param_aggregated:
+            return
+            
+        # Extract the top 5 parameter-optimized strategies
+        top_param_strategies = sorted(
+            param_aggregated.items(),
+            key=lambda x: x[1].get("combined_score", 0),
+            reverse=True
+        )[:5]
+        
+        # Extract all standard strategies
+        std_strategies = list(self.aggregated.items())
+        
+        # Combine top strategies from both approaches
+        all_strategies = std_strategies + top_param_strategies
+        
+        # Prepare data for chart
+        strategies = [s[0] for s in all_strategies]
+        context_precision = [s[1].get("context_precision", 0) for s in all_strategies]
+        token_efficiency = [s[1].get("token_efficiency", 0) for s in all_strategies]
+        combined_score = [s[1].get("combined_score", 0) for s in all_strategies]
+        
+        # Create chart
+        plt.figure(figsize=(12, 8))
+        
+        x = range(len(strategies))
+        width = 0.25
+        
+        # Plot bars
+        bars1 = plt.bar([i - width for i in x], context_precision, width, label='Context Precision')
+        bars2 = plt.bar(x, token_efficiency, width, label='Token Efficiency')
+        bars3 = plt.bar([i + width for i in x], combined_score, width, label='Combined Score')
+        
+        # Highlight the best strategies
+        for i, strategy in enumerate(strategies):
+            if strategy == self.best_strategy:
+                bars1[i].set_color('green')
+                bars2[i].set_color('green')
+                bars3[i].set_color('green')
+            elif strategy == param_best:
+                bars1[i].set_color('purple')
+                bars2[i].set_color('purple')
+                bars3[i].set_color('purple')
+            elif strategy in [s[0] for s in std_strategies]:
+                # Standard strategies
+                bars1[i].set_alpha(0.7)
+                bars2[i].set_alpha(0.7)
+                bars3[i].set_alpha(0.7)
+            else:
+                # Parameter-optimized strategies
+                bars1[i].set_hatch('/')
+                bars2[i].set_hatch('/')
+                bars3[i].set_hatch('/')
+        
+        plt.xlabel('Chunking Strategies')
+        plt.ylabel('Scores')
+        plt.title('Comparison of Standard vs Parameter-Optimized Strategies')
+        plt.xticks(x, [s[:15] + '...' if len(s) > 15 else s for s in strategies], rotation=45, ha='right')
+        plt.legend()
+        plt.tight_layout()
+        
+        # Save the chart
+        plt.savefig(os.path.join(self.output_dir, "strategy_comparison_chart.png"))
+        plt.close()
+        
+        # Create a combined plotly chart as well
+        self._generate_plotly_comparison(param_aggregated, param_best)
+    
+    def _generate_plotly_comparison(self, param_aggregated, param_best):
+        """
+        Generate an interactive comparison chart using Plotly.
+        
+        Args:
+            param_aggregated: Aggregated metrics from parameter optimization
+            param_best: Best strategy found by parameter optimization
+        """
+        if not self.aggregated or not param_aggregated:
+            return
+            
+        # Extract the top 5 parameter-optimized strategies
+        top_param_strategies = sorted(
+            param_aggregated.items(),
+            key=lambda x: x[1].get("combined_score", 0),
+            reverse=True
+        )[:5]
+        
+        # Extract all standard strategies
+        std_strategies = list(self.aggregated.items())
+        
+        # Prepare data for visualization
+        data = []
+        
+        # Add standard strategies
+        for strategy, metrics in std_strategies:
+            data.append({
+                "Strategy": strategy,
+                "Type": "Standard",
+                "Context Precision": metrics.get("context_precision", 0),
+                "Token Efficiency": metrics.get("token_efficiency", 0),
+                "Combined Score": metrics.get("combined_score", 0),
+                "Best": strategy == self.best_strategy
+            })
+        
+        # Add parameter-optimized strategies
+        for strategy, metrics in top_param_strategies:
+            data.append({
+                "Strategy": strategy,
+                "Type": "Parameter-Optimized",
+                "Context Precision": metrics.get("context_precision", 0),
+                "Token Efficiency": metrics.get("token_efficiency", 0),
+                "Combined Score": metrics.get("combined_score", 0),
+                "Best": strategy == param_best
+            })
+        
+        # Convert to DataFrame for easier handling
+        df = pd.DataFrame(data)
+        
+        # Create Plotly figure
+        fig = go.Figure()
+        
+        # Add traces for standard strategies
+        std_df = df[df["Type"] == "Standard"]
+        fig.add_trace(go.Bar(
+            x=std_df["Strategy"],
+            y=std_df["Combined Score"],
+            name="Standard Strategies",
+            marker_color="lightblue",
+            marker_line_color="blue",
+            marker_line_width=1.5,
+            opacity=0.7
+        ))
+        
+        # Add traces for parameter-optimized strategies
+        param_df = df[df["Type"] == "Parameter-Optimized"]
+        fig.add_trace(go.Bar(
+            x=param_df["Strategy"],
+            y=param_df["Combined Score"],
+            name="Parameter-Optimized Strategies",
+            marker_color="lightgreen",
+            marker_line_color="green",
+            marker_line_width=1.5,
+            opacity=0.7
+        ))
+        
+        # Highlight the best strategies
+        best_std = df[(df["Type"] == "Standard") & (df["Best"] == True)]
+        if not best_std.empty:
+            fig.add_trace(go.Bar(
+                x=best_std["Strategy"],
+                y=best_std["Combined Score"],
+                name="Best Standard Strategy",
+                marker_color="green",
+                marker_line_color="darkgreen",
+                marker_line_width=2
+            ))
+        
+        best_param = df[(df["Type"] == "Parameter-Optimized") & (df["Best"] == True)]
+        if not best_param.empty:
+            fig.add_trace(go.Bar(
+                x=best_param["Strategy"],
+                y=best_param["Combined Score"],
+                name="Best Parameter-Optimized Strategy",
+                marker_color="purple",
+                marker_line_color="darkpurple",
+                marker_line_width=2
+            ))
+        
+        # Update layout
+        fig.update_layout(
+            title="Comparison of Standard vs Parameter-Optimized Strategies",
+            xaxis_title="Chunking Strategy",
+            yaxis_title="Combined Score",
+            barmode="group",
+            xaxis_tickangle=-45,
+            legend_title="Strategy Type",
+            height=600,
+            width=900
+        )
+        
+        # Add hover information
+        fig.update_traces(
+            hovertemplate="<b>%{x}</b><br>" +
+                          "Combined Score: %{y:.4f}<br>" +
+                          "<extra></extra>"
+        )
+        
+        # Save as HTML
+        fig.write_html(os.path.join(self.output_dir, "strategy_comparison_chart.html"))
+        
+        # Create radar chart comparing the best strategies
+        self._generate_plotly_radar_comparison(std_strategies, top_param_strategies, self.best_strategy, param_best)
+        
+    def _generate_plotly_radar_comparison(self, std_strategies, param_strategies, std_best, param_best):
+        """
+        Generate a radar chart comparing the best standard and parameter-optimized strategies.
+        
+        Args:
+            std_strategies: List of standard strategies
+            param_strategies: List of parameter-optimized strategies
+            std_best: Best standard strategy
+            param_best: Best parameter-optimized strategy
+        """
+        # Get the best standard strategy metrics
+        std_best_metrics = None
+        for strategy, metrics in std_strategies:
+            if strategy == std_best:
+                std_best_metrics = metrics
+                break
+        
+        # Get the best parameter-optimized strategy metrics
+        param_best_metrics = None
+        for strategy, metrics in param_strategies:
+            if strategy == param_best:
+                param_best_metrics = metrics
+                break
+        
+        if not std_best_metrics or not param_best_metrics:
+            return
+        
+        # Prepare metrics for radar chart
+        metrics = ["context_precision", "token_efficiency", "combined_score", "answer_relevance"]
+        metric_labels = ["Context Precision", "Token Efficiency", "Combined Score", "Answer Relevance"]
+        
+        # Get metrics values, handling missing metrics with 0
+        std_values = [std_best_metrics.get(m, 0) for m in metrics]
+        param_values = [param_best_metrics.get(m, 0) for m in metrics]
+        
+        # Add the first metric again to close the polygon
+        std_values.append(std_values[0])
+        param_values.append(param_values[0])
+        metric_labels.append(metric_labels[0])
+        
+        # Create radar chart
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatterpolar(
+            r=std_values,
+            theta=metric_labels,
+            fill='toself',
+            name=f'Best Standard: {std_best[:20]}...' if len(std_best) > 20 else std_best
+        ))
+        
+        fig.add_trace(go.Scatterpolar(
+            r=param_values,
+            theta=metric_labels,
+            fill='toself',
+            name=f'Best Parameter: {param_best[:20]}...' if len(param_best) > 20 else param_best
+        ))
+        
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 1]
+                )
+            ),
+            title="Comparison of Best Strategies",
+            showlegend=True
+        )
+        
+        # Save as HTML
+        fig.write_html(os.path.join(self.output_dir, "best_strategies_radar.html")) 

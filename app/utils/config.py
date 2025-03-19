@@ -118,7 +118,7 @@ def validate_config(config: Dict[str, Any]) -> bool:
         ValueError: If the configuration is invalid.
     """
     # Check for required top-level keys
-    required_keys = ['model', 'database', 'chunking_strategies', 'evaluation']
+    required_keys = ['model', 'database', 'chunkers', 'evaluation']
     for key in required_keys:
         if key not in config:
             raise ValueError(f"Missing required configuration section: {key}")
@@ -151,41 +151,34 @@ def validate_config(config: Dict[str, Any]) -> bool:
                 raise ValueError(f"Missing required Gemini configuration: {key}")
     
     # Validate database configuration
-    if 'provider' not in config['database']:
-        raise ValueError("Missing 'provider' in database configuration")
+    if 'type' not in config['database']:
+        raise ValueError("Missing 'type' in database configuration")
         
-    db_provider = config['database']['provider']
-    if db_provider != 'mongodb':
-        raise ValueError(f"Invalid database provider: {db_provider}. Only 'mongodb' is currently supported")
-        
-    if 'mongodb' not in config['database']:
-        raise ValueError("Missing 'mongodb' section in database configuration")
-        
-    required_mongodb_keys = ['connection_string', 'database_name', 'collection_name']
-    for key in required_mongodb_keys:
-        if key not in config['database']['mongodb']:
-            raise ValueError(f"Missing required MongoDB configuration: {key}")
+    db_type = config['database']['type']
+    if db_type not in ['mongodb', 'chroma']:
+        raise ValueError(f"Invalid database type: {db_type}. Must be one of: mongodb, chroma")
     
     # Validate chunking strategies
-    if not config['chunking_strategies']:
+    if not config['chunkers']:
         raise ValueError("No chunking strategies defined")
         
     # Check if at least one chunking strategy is enabled
-    enabled_strategies = [name for name, strategy in config['chunking_strategies'].items() 
-                         if isinstance(strategy, dict) and strategy.get('enabled', False)]
-    
-    if not enabled_strategies:
+    if not any(strategy.get('enabled', False) for name, strategy in config['chunkers'].items() 
+              if isinstance(strategy, dict)):
         raise ValueError("No chunking strategies are enabled")
     
     return True
 
-def get_config() -> Dict[str, Any]:
+def get_config(config_path: str = "config.yaml") -> Dict[str, Any]:
     """
     Load and validate the configuration.
     
+    Args:
+        config_path: Path to the configuration file. Defaults to "config.yaml".
+        
     Returns:
         The validated configuration dictionary.
     """
-    config = load_config()
+    config = load_config(config_path)
     validate_config(config)
     return config 
