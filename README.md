@@ -12,7 +12,7 @@
 </div>
 
 ## ✨ Overview
-
+ 
 **BetterRAG** helps you find the optimal text chunking strategy for your Retrieval-Augmented Generation pipeline through rigorous, data-driven evaluation. Stop guessing which chunking method works best—measure it!
 
 <div align="center">
